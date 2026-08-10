@@ -4,4 +4,8 @@ set -euo pipefail
 
 PROMPT="${*:-Review this repository. Identify correctness issues, architectural problems, missing tests, and unnecessary complexity. Do not modify files. Return concrete recommendations to the lead agent.}"
 
-codex exec --ephemeral "$PROMPT"
+codex exec \
+  --ephemeral \
+  --model gpt-5.6-sol \
+  --config 'model_reasoning_effort="high"' \
+  "$PROMPT"
