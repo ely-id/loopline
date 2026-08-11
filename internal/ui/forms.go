@@ -10,6 +10,7 @@ import (
 
 	"routine-tui/internal/app"
 	"routine-tui/internal/domain"
+	"routine-tui/internal/theme"
 )
 
 // modalState wraps a huh/v2 form together with the closure that turns its
@@ -142,7 +143,7 @@ func newAddHabitForm(backend Backend, routines []domain.Routine) *modalState {
 			Title("Weekdays (only used when schedule = specific weekdays)").
 			Options(weekdayOpts...).Value(&weekdays),
 		huh.NewText().Title("Notes").Value(&notes),
-	).Title("Add habit"))
+	).Title("Add habit")).WithTheme(theme.HuhTheme())
 
 	submit := func() tea.Cmd {
 		sched := domain.DailySchedule()
@@ -170,7 +171,7 @@ func newAddRoutineForm(backend Backend) *modalState {
 
 	form := huh.NewForm(huh.NewGroup(
 		huh.NewInput().Title("Routine title").Value(&title).Validate(requiredText("title")),
-	).Title("Add routine"))
+	).Title("Add routine")).WithTheme(theme.HuhTheme())
 
 	submit := func() tea.Cmd {
 		return addRoutineCmd(backend, app.NewRoutine{Title: title})
@@ -193,7 +194,7 @@ func newAddReminderForm(backend Backend, today domain.Date) *modalState {
 			return nil
 		}),
 		huh.NewText().Title("Notes").Value(&notes),
-	).Title("Add reminder"))
+	).Title("Add reminder")).WithTheme(theme.HuhTheme())
 
 	submit := func() tea.Cmd {
 		d, err := domain.ParseDate(strings.TrimSpace(date))

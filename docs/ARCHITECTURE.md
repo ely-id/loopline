@@ -205,6 +205,14 @@ background on the page body so the terminal background shows through. No RGB
 hex unless justified in a comment. Exposes a `theme.Theme` value built by
 `theme.New()` holding named `lipgloss.Style` fields, plus heatmap level styles.
 
+This package also owns the form palette: `theme.HuhTheme()` returns a
+`huh.Theme` built from the same ANSI-16 colours, applied to every modal in
+`internal/ui/forms.go`. Without it huh falls back to its stock `ThemeCharm`,
+which hardcodes 24-bit RGB and 256-colour indices and so violates SPEC's
+styling rules. This is why `internal/theme` imports `charm.land/huh/v2` as
+well as lipgloss; the dependency direction is unaffected (theme still imports
+no first-party package).
+
 ### internal/ui (owner: ui)
 
 Bubble Tea **v2** (`charm.land/bubbletea/v2`): `Update(tea.Msg) (tea.Model, tea.Cmd)`,

@@ -19,6 +19,9 @@ func (m *Root) View() tea.View {
 		return tea.NewView(m.renderHelp())
 	}
 	if !m.ready {
+		if m.status != "" {
+			return tea.NewView(m.renderStartupError())
+		}
 		return tea.NewView(m.renderLoading())
 	}
 
@@ -66,14 +69,25 @@ func (m *Root) renderColumns() string {
 // styledColumn wraps a column's content with its border, sized and clamped
 // so it can never overflow the terminal even if the content is too tall or
 // wide.
+//
+// Width and Height are the TOTAL box dimensions in Lip Gloss v2 — border and
+// padding included — so they take outerWidth/outerHeight directly. Passing
+// outerWidth-2 here (as if Width sized only the interior) made every column
+// render two cells narrower than the width renderColumns had already handed
+// its renderers, so content that was pre-wrapped to fit got wrapped a second
+// time; the extra physical lines then overflowed the height budget and
+// MaxHeight clipped the bottom of the column, taking the day progress bar
+// and the closing border with it.
+//
+// The interior these dimensions leave is outerWidth-4 by outerHeight-2
+// (border 2 + horizontal padding 2; padding is 0 vertically), which is
+// exactly the text width and inner height renderColumns computes.
 func (m *Root) styledColumn(col, outerWidth, outerHeight int, content string) string {
 	style := m.theme.Column
 	if m.focus.Column == col {
 		style = m.theme.ColumnFocused
 	}
-	contentWidth := max(outerWidth-2, 0)
-	contentHeight := max(outerHeight-2, 0)
-	style = style.Width(contentWidth).Height(contentHeight).MaxWidth(outerWidth).MaxHeight(outerHeight)
+	style = style.Width(outerWidth).Height(outerHeight).MaxWidth(outerWidth).MaxHeight(outerHeight)
 	return style.Render(content)
 }
 
@@ -104,6 +118,19 @@ func (m *Root) renderLoading() string {
 		max(m.width, 1), max(m.height, 1),
 		lipgloss.Center, lipgloss.Center,
 		m.theme.Dim.Render("Loading…"),
+	)
+}
+
+// renderStartupError is shown instead of renderLoading when the very first
+// Snapshot fetch fails (m.status set, m.ready still false): otherwise the
+// app would be stuck on a permanent "Loading…" with the real error never
+// displayed anywhere. Reuses ReminderOverdue, the same style renderFooter
+// already uses for the status line's error case.
+func (m *Root) renderStartupError() string {
+	return lipgloss.Place(
+		max(m.width, 1), max(m.height, 1),
+		lipgloss.Center, lipgloss.Center,
+		m.theme.ReminderOverdue.Render(m.status),
 	)
 }
 

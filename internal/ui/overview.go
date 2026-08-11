@@ -23,7 +23,7 @@ func (m *Root) renderOverview(width int) string {
 	b.WriteString(m.renderOverviewActions())
 	b.WriteString("\n\n")
 
-	b.WriteString(m.renderCalendar())
+	b.WriteString(m.renderCalendar(width))
 	b.WriteString("\n\n")
 
 	b.WriteString(m.renderWeek())
@@ -49,20 +49,33 @@ func (m *Root) blockTitleStyle(block int) lipgloss.Style {
 	return m.theme.BlockTitle
 }
 
-func (m *Root) renderOverviewStats() string {
+// renderOverviewStats must always occupy exactly two physical lines,
+// whatever width it's given: renderOverview has no viewport of its own, so
+// an extra wrapped line here silently pushes the heatmap block past
+// MinHeight's fixed budget (see docs/ARCHITECTURE.md's height-budgeting
+// rule and layout_test.go's TestOverviewContentFitsAtMinHeight). MaxWidth
+// truncates instead of wrapping, and the labels are kept short so real
+// values still fit legibly at the minimum column width.
+func (m *Root) renderOverviewStats(width int) string {
 	ov := m.snap.Overview
-	line1 := fmt.Sprintf("Streak %d  Best %d  Lifetime %d%%", ov.CurrentStreak, ov.BestStreak, ov.LifetimePercent)
-	line2 := fmt.Sprintf("Habits %d  Routines %d  Open reminders %d", ov.ActiveHabits, ov.ActiveRoutines, ov.OpenReminders)
-	return m.theme.Text.Render(line1) + "\n" + m.theme.Dim.Render(line2)
+	// Labels are abbreviated so that realistic values still fit inside the
+	// 27-cell column the minimum terminal width leaves: MaxWidth below is a
+	// hard guarantee against pathological values, but it truncates from the
+	// right, so a label long enough to push its own number past the edge
+	// would render as a label with no value at all. The "Lifetime" block
+	// title directly above supplies the context the percentage drops.
+	line1 := fmt.Sprintf("Streak %d  Best %d  %d%%", ov.CurrentStreak, ov.BestStreak, ov.LifetimePercent)
+	line2 := fmt.Sprintf("Habits %d  Rout %d  Rem %d", ov.ActiveHabits, ov.ActiveRoutines, ov.OpenReminders)
+	return m.theme.Text.MaxWidth(width).Render(line1) + "\n" + m.theme.Dim.MaxWidth(width).Render(line2)
 }
 
-func (m *Root) renderCalendar() string {
+func (m *Root) renderCalendar(width int) string {
 	title := m.blockTitleStyle(OverviewLifetime)
 
 	var b strings.Builder
 	b.WriteString(title.Render("Lifetime"))
 	b.WriteString("\n")
-	b.WriteString(m.renderOverviewStats())
+	b.WriteString(m.renderOverviewStats(width))
 	b.WriteString("\n\n")
 
 	cal := m.snap.Calendar
@@ -162,8 +175,26 @@ func (m *Root) renderHeatmap(width int) string {
 	title := m.blockTitleStyle(OverviewHeatmap)
 	hm := m.snap.Heatmap
 
+	// Downsample rather than truncate: a range whose week count exceeds the
+	// available columns must still represent its whole span (SPEC's
+	// year/all filters), not just its newest ~6 months. When everything
+	// fits, k stays 1 and this is byte-for-byte what the old truncating
+	// code rendered.
+	cols := hm.Columns
+	maxCols := clampInt(width-2, 1, len(cols))
+	k := 1
+	if len(cols) > maxCols {
+		k = (len(cols) + maxCols - 1) / maxCols // ceil(n / maxCols)
+		cols = compressHeatmapColumns(cols, k)
+	}
+
+	label := hm.Range.Label()
+	if k > 1 {
+		label = fmt.Sprintf("%s (%dw/col)", label, k)
+	}
+
 	var b strings.Builder
-	b.WriteString(title.Render(fmt.Sprintf("Heatmap · %s", hm.Range.Label())))
+	b.WriteString(title.Render(fmt.Sprintf("Heatmap · %s", label)))
 	b.WriteString("\n")
 	if focused {
 		b.WriteString(m.theme.Dim.Render("enter or </> change range"))
@@ -171,12 +202,6 @@ func (m *Root) renderHeatmap(width int) string {
 		b.WriteString(m.theme.Dim.Render(" "))
 	}
 	b.WriteString("\n")
-
-	cols := hm.Columns
-	maxCols := clampInt(width-2, 1, len(cols))
-	if len(cols) > maxCols {
-		cols = cols[len(cols)-maxCols:]
-	}
 
 	for row := 0; row < 7; row++ {
 		var line strings.Builder
@@ -192,6 +217,50 @@ func (m *Root) renderHeatmap(width int) string {
 		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// compressHeatmapColumns downsamples week-columns into groups of k
+// consecutive columns so the rendered heatmap always spans the full
+// selected range instead of only its newest maxCols weeks. Each of the 7
+// weekday rows is aggregated independently: cells with a zero Date (padding
+// outside the range) are skipped, and if every cell in a run is padding the
+// merged cell stays zero-Date padding too, so it still renders as a blank
+// space exactly like an unmerged out-of-range cell does today.
+func compressHeatmapColumns(cols [][]app.HeatmapCell, k int) [][]app.HeatmapCell {
+	if k <= 1 {
+		return cols
+	}
+	out := make([][]app.HeatmapCell, 0, (len(cols)+k-1)/k)
+	for i := 0; i < len(cols); i += k {
+		end := i + k
+		if end > len(cols) {
+			end = len(cols)
+		}
+		run := cols[i:end]
+
+		merged := make([]app.HeatmapCell, 7)
+		for row := 0; row < 7; row++ {
+			var sum domain.DailySummary
+			var repDate domain.Date
+			any := false
+			for _, col := range run {
+				cell := col[row]
+				if cell.Date.IsZero() {
+					continue
+				}
+				any = true
+				repDate = cell.Date
+				sum.Completed += cell.Summary.Completed
+				sum.Scheduled += cell.Summary.Scheduled
+			}
+			if !any {
+				continue // leave merged[row] as the zero HeatmapCell (padding)
+			}
+			merged[row] = app.HeatmapCell{Date: repDate, Summary: sum, Level: fallbackLevel(sum)}
+		}
+		out = append(out, merged)
+	}
+	return out
 }
 
 // fallbackLevel buckets a day's completion into the same five shades

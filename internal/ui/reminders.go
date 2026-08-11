@@ -58,10 +58,16 @@ func (m *Root) renderReminders(width, height int) string {
 		listHeight := max(height-reminderChrome, 1)
 		body = strings.Join(windowAround(lines, listHeight, focusLine), "\n")
 		if focusedList && m.focus.Item >= 0 && m.focus.Item < len(sorted) {
-			notesText = strings.TrimSpace(sorted[m.focus.Item].Notes)
+			notesText = flattenWhitespace(sorted[m.focus.Item].Notes)
 		}
 	}
 
+	// reminderChrome budgets exactly one line for the note, but the note
+	// comes from a huh multiline text field, so it can legitimately contain
+	// newlines. MaxWidth truncates each line without joining them, so a
+	// three-line note would render three rows and push the column two rows
+	// past its budget — clipping the bottom border off the whole column.
+	// flattenWhitespace above collapses it to a single line first.
 	notesLine := m.theme.Dim.Render(" ")
 	if notesText != "" {
 		notesLine = m.theme.Dim.MaxWidth(width).Render("note: " + notesText)
@@ -84,10 +90,13 @@ func countUpcoming(sorted []domain.Reminder) int {
 	return n
 }
 
-// reminderLines renders one line per reminder in sorted (inserting a single
-// "Done" divider the first time it crosses from incomplete to completed),
-// and reports the absolute line index of the focused reminder, or -1 if the
-// list doesn't currently hold focus.
+// reminderLines renders one or more *physical* lines per reminder in sorted
+// (inserting a single "Done" divider the first time it crosses from
+// incomplete to completed), pre-wrapped to width via wrapPhysical so the
+// caller windows on real screen rows, not logical reminders — see
+// wrapPhysical's doc comment. It reports the absolute index of the first
+// physical line of the focused reminder, or -1 if the list doesn't
+// currently hold focus.
 func (m *Root) reminderLines(width int, sorted []domain.Reminder, focusedList bool) (lines []string, focusLine int) {
 	focusLine = -1
 	doneHeaderShown := false
@@ -96,19 +105,25 @@ func (m *Root) reminderLines(width int, sorted []domain.Reminder, focusedList bo
 			if len(lines) > 0 {
 				lines = append(lines, "")
 			}
-			lines = append(lines, m.theme.Dim.Render("Done"))
+			lines = append(lines, wrapPhysical(m.theme.Dim.Render("Done"), width)...)
 			doneHeaderShown = true
 		}
 		selected := focusedList && m.focus.Item == i
+		itemLines := m.renderReminderLines(width, r, selected)
 		if selected {
 			focusLine = len(lines)
 		}
-		lines = append(lines, m.renderReminderLine(width, r, selected))
+		lines = append(lines, itemLines...)
 	}
 	return lines, focusLine
 }
 
-func (m *Root) renderReminderLine(width int, r domain.Reminder, selected bool) string {
+// renderReminderLines renders one reminder row and wraps it to width,
+// returning every physical line it occupies. A selected reminder is padded
+// and reversed per physical line (rather than once over the whole, possibly
+// multi-line, row) so the highlight covers the full width of every wrapped
+// line, not just the first.
+func (m *Root) renderReminderLines(width int, r domain.Reminder, selected bool) []string {
 	check := theme.GlyphPending
 	if r.Completed {
 		check = theme.GlyphDone
@@ -123,7 +138,12 @@ func (m *Root) renderReminderLine(width int, r domain.Reminder, selected bool) s
 
 	if selected {
 		line := fmt.Sprintf("%s [%s] %s", markerGlyph(true), check, body)
-		return m.theme.ItemSelected.Render(padTo(line, width))
+		rows := wrapPhysical(line, width)
+		out := make([]string, len(rows))
+		for i, row := range rows {
+			out[i] = m.theme.ItemSelected.Render(padTo(row, width))
+		}
+		return out
 	}
 
 	checkStyle := m.theme.CheckPending
@@ -131,11 +151,12 @@ func (m *Root) renderReminderLine(width int, r domain.Reminder, selected bool) s
 		checkStyle = m.theme.CheckDone
 	}
 	status := m.reminderStatusStyle(r)
-	return fmt.Sprintf("%s [%s] %s",
+	composite := fmt.Sprintf("%s [%s] %s",
 		theme.GlyphUnselected,
 		checkStyle.Render(check),
 		status.Render(body),
 	)
+	return wrapPhysical(composite, width)
 }
 
 func (m *Root) reminderStatusStyle(r domain.Reminder) lipgloss.Style {

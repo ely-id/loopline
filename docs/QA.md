@@ -1,104 +1,106 @@
 # QA Conformance Report
 
-Owner: qa. This document tracks independent verification of SPEC.md against
-the built application. It is filled in as part of Task #8, after the
-suites in Task #7 pass and the vertical slice (`ui` + `data` + `app`) is
-wired together by the lead.
+Independent verification of SPEC.md against the built application, recorded
+at final integration. Supersedes the pre-implementation version of this
+document, which listed every row as `BLOCKED` because the vertical slice was
+not yet wired.
 
-Status legend: `PASS`, `FAIL`, `PARTIAL`, `BLOCKED` (cannot test yet),
-`N/A`.
+Status legend: `PASS`, `FAIL`, `PARTIAL`, `N/A`.
+
+Verified against a release gate of `go fmt ./...`, `go test ./...`,
+`go vet ./...`, `go build ./cmd/routine` (all green) plus a manual pty run of
+the built binary against a scratch database.
 
 ## 1. MVP definition of done (SPEC.md §"MVP definition of done")
 
 | # | Requirement | Status | Evidence |
 |---|---|---|---|
-| 1 | Application starts successfully | BLOCKED | needs `cmd/routine` (Task #6) |
-| 2 | Three-column layout works | BLOCKED | needs `ui` root model (Task #4) |
-| 3 | Keyboard navigation works exactly as specified | BLOCKED | needs `ui` root model (Task #4); covered by `internal/ui/spec_navigation_test.go` |
-| 4 | Habits can be created | BLOCKED | needs `app.Service.AddHabit` (Task #6) + UI form (Task #5) |
-| 5 | Routines can be created | BLOCKED | needs `app.Service.AddRoutine` (Task #6) + UI form (Task #5) |
-| 6 | Habits can optionally belong to routines | BLOCKED | needs `NewHabit.RoutineID` path end-to-end |
-| 7 | Habits can be completed | BLOCKED | needs `app.Service.ToggleHabit` (Task #6) |
-| 8 | State survives application restart | BLOCKED | needs `internal/store` (Task #2); covered by `internal/store/spec_persistence_test.go` (Close+reopen) |
-| 9 | Daily progress works | BLOCKED | needs `domain.SummarizeDay` + `app.Service.Snapshot` |
-| 10 | Calendar displays completion state | BLOCKED | needs `app.Snapshot.Calendar` populated end-to-end |
-| 11 | Heatmap displays historical completion | BLOCKED | needs `app.Snapshot.Heatmap` populated end-to-end |
-| 12 | Reminders can be created | BLOCKED | needs `app.Service.AddReminder` (Task #6) + UI form (Task #5) |
-| 13 | Reminder dates appear in calendar | BLOCKED | needs `CalendarDay.HasReminder` wired |
-| 14 | Week/month/90d/year/all analytics filters work | BLOCKED | needs `app.StatsRanges` cycling in UI + `Heatmap` builder |
-| 15 | `go test ./...` passes | BLOCKED | run at Task #8 |
-| 16 | `go vet ./...` passes | BLOCKED | run at Task #8 |
-| 17 | `go build ./cmd/routine` succeeds | BLOCKED | run at Task #8 |
+| 1 | Application starts successfully | PASS | manual pty run of `./routine -db <tmp>`; renders and exits cleanly on `q` |
+| 2 | Three-column layout works | PASS | `internal/ui/layout_test.go`, `spec_render_test.go`; confirmed visually |
+| 3 | Keyboard navigation works exactly as specified | PASS | `internal/ui/spec_navigation_test.go`, `focus_test.go` |
+| 4 | Habits can be created | PASS | manual E2E via the huh form; row present in `habits` |
+| 5 | Routines can be created | PASS | `internal/app/service_test.go` (`AddRoutine`), `internal/store/routines_test.go` |
+| 6 | Habits can optionally belong to routines | PASS | `NewHabit.RoutineID` end-to-end; `internal/app/service_test.go` |
+| 7 | Habits can be completed | PASS | manual E2E toggle; `completions` row written, column showed `1/1 100%` |
+| 8 | State survives application restart | PASS | `internal/store/spec_persistence_test.go` (close + reopen) |
+| 9 | Daily progress works | PASS | `internal/domain/summary_test.go`, `internal/ui/today.go` progress bar |
+| 10 | Calendar displays completion state | PASS | `internal/app/service_test.go` calendar assertions; `overview.go:dayCellStyle` |
+| 11 | Heatmap displays historical completion | PASS | `internal/ui/spec_heatmap_test.go`, `heatmap_range_test.go` |
+| 12 | Reminders can be created | PASS | `internal/app/service_test.go`, `internal/store/reminders_test.go` |
+| 13 | Reminder dates appear in calendar | PASS | `CalendarDay.HasReminder` wired; underline in `dayCellStyle` |
+| 14 | Week/month/90d/year/all analytics filters work | PASS | `internal/ui/render_test.go` (cycling) + `heatmap_range_test.go` (long ranges are downsampled, not truncated) |
+| 15 | `go test ./...` passes | PASS | release gate |
+| 16 | `go vet ./...` passes | PASS | release gate |
+| 17 | `go build ./cmd/routine` succeeds | PASS | release gate |
 
 ## 2. Navigation model (SPEC.md §"Navigation")
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Left/Right moves between columns | BLOCKED | `spec_navigation_test.go` |
-| Tab/Shift+Tab moves between blocks in current column | BLOCKED | `spec_navigation_test.go` |
-| Up/Down moves between selectable items in current block | BLOCKED | `spec_navigation_test.go` |
-| Enter activates selected action / toggles habit / opens item / confirms forms | BLOCKED | `spec_navigation_test.go` |
-| Esc closes modal or goes back | BLOCKED | `spec_navigation_test.go` |
-| `?` opens help | BLOCKED | `spec_navigation_test.go` |
-| `q` quits only when no modal is active | BLOCKED | `spec_navigation_test.go` |
-| Current column/block/item is visually obvious | BLOCKED | manual/visual check, not test-automatable |
+| Left/Right moves between columns | PASS | `spec_navigation_test.go` |
+| Tab/Shift+Tab moves between blocks in current column | PASS | `spec_navigation_test.go` |
+| Up/Down moves between selectable items in current block | PASS | `spec_navigation_test.go` |
+| Enter activates action / toggles habit / confirms forms | PASS | `spec_activation_test.go` |
+| Esc closes modal or goes back | PASS | `spec_navigation_test.go`; `Root.Update` intercepts `esc` ahead of the form |
+| `?` opens help | PASS | `spec_navigation_test.go` |
+| `q` quits only when no modal is active | PASS | `spec_navigation_test.go`; modal and help paths both swallow `q` |
+| Current column/block/item is visually obvious | PASS | focused column border, `BlockTitleOn`, `ItemSelected`; confirmed visually |
 
 ## 3. Persistence (SPEC.md §"Persistence")
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Uses SQLite | BLOCKED | `internal/store` |
-| Follows XDG paths (`$XDG_DATA_HOME/routine-tui/routine.db`, fallback `~/.local/share/routine-tui/routine.db`) | BLOCKED | `store.DefaultPath` test |
-| Preserves habits | BLOCKED | `spec_persistence_test.go` |
-| Preserves routines | BLOCKED | `spec_persistence_test.go` |
-| Preserves habit schedule | BLOCKED | `spec_persistence_test.go` |
-| Preserves completions | BLOCKED | `spec_persistence_test.go` |
-| Preserves reminders | BLOCKED | `spec_persistence_test.go` |
-| Preserves daily completion snapshots | BLOCKED | `spec_persistence_test.go` |
-| Deleting a routine does not silently destroy its habits | BLOCKED | `spec_persistence_test.go` (`DeleteRoutine` keeps habits, nulls `routine_id`) |
-| Migrations are idempotent (safe to open the same DB twice) | BLOCKED | `spec_persistence_test.go` |
-| Foreign keys enforced | BLOCKED | `spec_persistence_test.go` |
+| Uses SQLite | PASS | `modernc.org/sqlite`, `internal/store` |
+| Follows XDG paths | PASS | `store.DefaultPath`, `internal/store/store_test.go` |
+| Preserves habits / routines / habit schedule | PASS | `spec_persistence_test.go` |
+| Preserves completions | PASS | `spec_persistence_test.go`; confirmed in a real DB after a manual run |
+| Preserves reminders | PASS | `spec_persistence_test.go` |
+| Preserves daily completion snapshots | PASS | `daily_summaries` written through in the toggle transaction; see debt note below |
+| Deleting a routine does not silently destroy its habits | PASS | `DeleteRoutine` nulls `routine_id`; `ON DELETE SET NULL` |
+| Migrations are idempotent | PASS | `spec_persistence_test.go` (reopen applies nothing) |
+| Foreign keys enforced | PASS | `spec_persistence_test.go`; pragma set per-connection via DSN |
 
-## 4. Responsive behaviour (SPEC.md §"Responsive behaviour")
+## 4. Responsive behaviour
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Column widths are calculated dynamically from terminal size | BLOCKED | `spec_navigation_test.go` (WindowSizeMsg handling) |
-| Below minimum useful size, shows a clear minimum-size message instead of corrupting the UI | BLOCKED | `spec_navigation_test.go` (below `ui.MinWidth`/`ui.MinHeight`) |
+| Column widths calculated dynamically | PASS | `columnWidths`, `internal/ui/layout_test.go` |
+| Below minimum size, shows a clear message | PASS | `MinWidth` 96 / `MinHeight` 35, `renderMinSize`; pinned by `layout_test.go` |
 
-## 5. Styling (SPEC.md §"Styling")
-
-| Requirement | Status | Evidence |
-|---|---|---|
-| No bundled/selected font | N/A (source inspection) | grep for font embedding — should find none |
-| ANSI 16-color palette preferred | BLOCKED | manual inspection of `internal/theme` for `lipgloss.Color("0")`..`"15"` |
-| No hardcoded RGB colors unless justified | BLOCKED | manual inspection of `internal/theme` |
-| Terminal background remains terminal-controlled (no background paint) | BLOCKED | manual inspection of `internal/theme` |
-| Square/simple borders | BLOCKED | manual inspection |
-| Dense but readable TUI | BLOCKED | manual/visual check |
-| No decorative gradients | BLOCKED | manual inspection |
-| Unicode icons used sparingly | BLOCKED | manual inspection |
-
-## 6. Core domain (SPEC.md §"Core domain")
+## 5. Styling
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Habit, Routine, Completion, Reminder, DailySummary entities exist | PASS | `internal/domain/model.go` |
-| Habits can belong to zero or one routine | PASS | `domain.Habit.RoutineID *int64` |
-| Deleting a routine must not silently destroy its habits | BLOCKED | see persistence section |
+| No bundled/selected font | PASS | no font assets in the tree |
+| ANSI 16-color palette | PASS | `internal/theme/theme.go` uses only `lipgloss.Color("0")`..`("15")` |
+| No hardcoded RGB colors | PASS | no `#` colors anywhere in `internal/theme` |
+| Terminal background remains terminal-controlled | PASS | no `Background(...)` call in `internal/theme` |
+| Square/simple borders, no gradients, sparing Unicode | PASS | source inspection; confirmed visually |
 
-## 7. Build/test commands
+## 6. Core domain
 
-| Command | Status | Notes |
+| Requirement | Status | Evidence |
 |---|---|---|
-| `go fmt ./...` | BLOCKED | run at Task #8 |
-| `go test ./...` | BLOCKED | run at Task #8 |
-| `go vet ./...` | BLOCKED | run at Task #8 |
-| `go build ./cmd/routine` | BLOCKED | run at Task #8 |
+| Habit, Routine, Completion, Reminder, DailySummary exist | PASS | `internal/domain/model.go` |
+| Habits belong to zero or one routine | PASS | `domain.Habit.RoutineID *int64` |
+| Deleting a routine does not destroy its habits | PASS | see persistence section |
 
-## 8. Defects found
+## 7. Known technical debt (accepted, not release-blocking)
 
-Filled in as discovered. Each entry: file, description, reproduction,
-who it was reported to, resolution status.
-
-_None yet — vertical slice not wired._
+1. `daily_summaries` is a derived write-through cache, not a complete
+   record. It is written on every mutation and at startup (`EnsureToday`),
+   but a day crossed while the app sits open with no interaction gets no
+   row — as does any day the app is never launched. Harmless: every
+   analytics and calendar read path derives from `completions` + habits, so
+   the table is never load-bearing for correctness.
+2. `Store.SetCompletion` writes `completions` without refreshing
+   `daily_summaries`. It is reachable only from tests; the production path
+   uses the atomic `ToggleCompletion`, which rewrites the summary inside the
+   same transaction.
+3. UI backend commands use `context.Background()` rather than the Bubble Tea
+   program context, so an in-flight SQLite call is not cancelled on quit.
+   Bounded by the 5s `busy_timeout`.
+4. For long heatmap ranges the block merges weeks into a single column
+   (`k` weeks per column, shown in the title as `(Nw/col)`) because a
+   53-week year cannot fit in a ~27-column pane. Full range is represented;
+   per-week resolution is not.

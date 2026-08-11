@@ -2,6 +2,9 @@ package ui
 
 import (
 	"fmt"
+	"strings"
+
+	lipgloss "charm.land/lipgloss/v2"
 
 	"routine-tui/internal/domain"
 )
@@ -60,4 +63,28 @@ func windowAround(lines []string, height, focus int) []string {
 		start = len(lines) - height
 	}
 	return lines[start : start+height]
+}
+
+// wrapPhysical splits s (which may already carry ANSI styling) into the
+// individual physical lines it occupies once rendered at width, using the
+// same ANSI-aware word-wrap Lip Gloss applies whenever a Style.Width()
+// renders a too-long line (falling back to a hard character break for a
+// single word wider than width). Height budgeting must measure wrapped
+// height at the real usable column width, not logical string count (see
+// docs/ARCHITECTURE.md): callers building a line-per-row slice for
+// windowAround pre-wrap every item through this so the slice they hand to
+// windowAround already has one entry per physical row, and the outer column
+// framing's own Width() never needs to wrap anything further.
+// flattenWhitespace collapses every run of whitespace — newlines included —
+// into a single space, so free-text a user typed into a multiline form field
+// can be rendered on a single row that a one-line height budget can hold.
+func flattenWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func wrapPhysical(s string, width int) []string {
+	if width <= 0 {
+		return []string{s}
+	}
+	return strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")
 }
