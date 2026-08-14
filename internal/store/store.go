@@ -1,4 +1,4 @@
-// Package store implements SQLite-backed persistence for routine-tui,
+// Package store implements SQLite-backed persistence for loopline,
 // satisfying the app.Store contract declared in internal/app/ports.go.
 //
 // This package depends only on the Go standard library, domain and the
@@ -20,10 +20,10 @@ type SQLite struct {
 	db *sql.DB
 }
 
-// DefaultPath resolves the database file location following XDG Base
-// Directory conventions: $XDG_DATA_HOME/routine-tui/routine.db, falling back
-// to ~/.local/share/routine-tui/routine.db. The containing directory is
-// created with 0o700 permissions if it does not already exist.
+// DefaultPath intentionally retains loopline's pre-rename XDG location:
+// $XDG_DATA_HOME/routine-tui/routine.db, falling back to
+// ~/.local/share/routine-tui/routine.db. Keeping it stable prevents an upgrade
+// from appearing to lose user data. The directory is created with 0o700.
 func DefaultPath() (string, error) {
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {

@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // longTitledHabitsBackend seeds count habits whose titles are long enough
@@ -148,27 +148,23 @@ func TestTodayProgressBarIsLastNonBlankLine(t *testing.T) {
 	}
 }
 
-// TestOverviewStatsFitsBudgetAtMinColumnWidth is the regression test for
-// FIX 3: at the overview column's real text width (27 cells at MinWidth=96),
-// renderOverviewStats must always occupy exactly two physical lines,
-// whatever the underlying values are, so a wide stats line never pushes the
-// heatmap block past MinHeight's fixed 31-line budget.
-func TestOverviewStatsFitsBudgetAtMinColumnWidth(t *testing.T) {
+// TestLifetimeFitsBudgetAtMinColumnWidth pins the three concise historical
+// rows at the Overview's real 27-cell width.
+func TestLifetimeFitsBudgetAtMinColumnWidth(t *testing.T) {
 	const overviewTextWidthAtMinWidth = 27
 
 	today := domain.MustParseDate("2026-08-10")
 	root := newReadyRoot(t, newFakeBackend(today))
-	root.snap.Overview.ActiveHabits = 15
-	root.snap.Overview.ActiveRoutines = 0
-	root.snap.Overview.OpenReminders = 123
 	root.snap.Overview.CurrentStreak = 999
-	root.snap.Overview.BestStreak = 999
+	root.snap.Overview.BestStreak = 888
+	root.snap.Overview.TotalCompletions = 99999
+	root.snap.Overview.DaysTracked = 777
 	root.snap.Overview.LifetimePercent = 100
 
-	stats := stripANSI(root.renderOverviewStats(overviewTextWidthAtMinWidth))
+	stats := stripANSI(root.renderLifetime(overviewTextWidthAtMinWidth))
 	lines := strings.Split(stats, "\n")
-	if len(lines) != 2 {
-		t.Fatalf("renderOverviewStats produced %d physical lines at width %d, want exactly 2: %q", len(lines), overviewTextWidthAtMinWidth, stats)
+	if len(lines) != 4 {
+		t.Fatalf("renderLifetime produced %d physical lines at width %d, want title + 3 rows: %q", len(lines), overviewTextWidthAtMinWidth, stats)
 	}
 	for i, l := range lines {
 		if w := lipgloss.Width(l); w > overviewTextWidthAtMinWidth {
@@ -176,12 +172,7 @@ func TestOverviewStatsFitsBudgetAtMinColumnWidth(t *testing.T) {
 		}
 	}
 
-	// Fitting the budget by truncation alone is not enough: MaxWidth cuts
-	// from the right, so labels must be short enough that the numbers they
-	// label survive at the minimum width. Otherwise the column renders
-	// "…Best 999  Lifetime" — a label with its value clipped off, which
-	// reads as a rendering bug.
-	for _, want := range []string{"999", "100%", "15", "123"} {
+	for _, want := range []string{"99999", "100%", "777", "999", "888"} {
 		if !strings.Contains(stats, want) {
 			t.Fatalf("stat value %q was truncated away at width %d: %q", want, overviewTextWidthAtMinWidth, stats)
 		}
@@ -192,12 +183,12 @@ func TestOverviewStatsFitsBudgetAtMinColumnWidth(t *testing.T) {
 	// enough to wrap at width 27 if renderOverviewStats didn't truncate
 	// instead.
 	root2 := newReadyRoot(t, newRichBackend(sixWeekMonthToday))
-	root2.snap.Overview.ActiveHabits = 15
-	root2.snap.Overview.OpenReminders = 123
+	root2.snap.Overview.TotalCompletions = 99999
+	root2.snap.Overview.DaysTracked = 777
 	root2.snap.Overview.LifetimePercent = 100
 
 	overviewLines := strings.Split(root2.renderOverview(overviewTextWidthAtMinWidth), "\n")
-	budget := MinHeight - 4 // bodyHeight (-2 footer) then column border (-2)
+	budget := MinHeight - 3 // one footer row + two column-border rows
 	if len(overviewLines) > budget {
 		t.Fatalf("renderOverview produced %d lines at width %d, want <= %d (MinHeight=%d budget)", len(overviewLines), overviewTextWidthAtMinWidth, budget, MinHeight)
 	}

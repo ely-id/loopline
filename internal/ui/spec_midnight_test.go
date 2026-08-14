@@ -7,7 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // fireTick simulates exactly one firing of Root's once-a-minute midnight poll

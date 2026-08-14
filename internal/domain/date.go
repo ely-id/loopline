@@ -1,4 +1,4 @@
-// Package domain holds entities and pure calculations for routine-tui.
+// Package domain holds entities and pure calculations for loopline.
 //
 // This package depends only on the Go standard library. It must never import
 // storage, UI or application packages.

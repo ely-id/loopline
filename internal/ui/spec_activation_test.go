@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // countCalls returns how many times name appears in calls (fakeBackend
@@ -36,7 +36,8 @@ func TestSpecActivateRapidDoubleEnterTogglesHabitExactlyOnce(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newFakeBackend(today).withHabits(domain.Habit{Title: "Stretch"})
 	root := newReadyRoot(t, backend)
-	root = pressKey(t, root, "right") // Overview -> Today, focused on item 0
+	root = pressKey(t, root, "right") // Overview -> Today Add block
+	root = pressKey(t, root, "tab")   // first habit group
 
 	if root.pending {
 		t.Fatal("setup: pending should start false")

@@ -7,13 +7,15 @@ import (
 
 	lipgloss "charm.land/lipgloss/v2"
 
-	"routine-tui/internal/domain"
-	"routine-tui/internal/theme"
+	"loopline/internal/app"
+	"loopline/internal/domain"
+	"loopline/internal/theme"
 )
 
-// reminderChrome is the number of non-list lines renderReminders always
-// writes: title, blank, action row, blank, list header, blank, notes line.
-const reminderChrome = 7
+// reminderChrome is the number of non-list rows at a given month height. The
+// old permanently reserved note line is gone; details now live inside the
+// windowed list only when explicitly expanded.
+func reminderChrome(calendarWeeks int) int { return 9 + calendarWeeks }
 
 // sortedReminders returns the reminders Store.Reminders handed back,
 // reordered for display: reminders still due (in date order, so an overdue
@@ -32,12 +34,10 @@ func (m *Root) sortedReminders() []domain.Reminder {
 	return sorted
 }
 
-// renderReminders builds the reminders column: the "add reminder" action,
-// the chronological upcoming list (windowed to fit height, done reminders
-// de-emphasised below a "Done" divider), then the selected reminder's notes
-// pinned to the bottom.
+// renderReminders builds the time/events column: action, conventional month
+// calendar, and a chronological list with optional inline details.
 func (m *Root) renderReminders(width, height int) string {
-	header := m.columnTitle(ColReminders, "Reminders")
+	header := m.columnTitle(ColReminders, theme.IconReminders+" Reminders")
 
 	focusedActions := m.focus.Column == ColReminders && m.focus.Block == RemindersActions
 	action := m.renderActionLine("Add reminder", focusedActions && m.focus.Item == 0)
@@ -51,29 +51,57 @@ func (m *Root) renderReminders(width, height int) string {
 	}
 	listHeader := listTitleStyle.Render(fmt.Sprintf("Upcoming  %d", countUpcoming(sorted)))
 
+	listHeight := max(height-reminderChrome(len(m.snap.Calendar.Weeks)), 1)
 	body := m.theme.Muted.Render("No reminders yet.")
-	notesText := ""
 	if len(sorted) > 0 {
-		lines, focusLine := m.reminderLines(width, sorted, focusedList)
-		listHeight := max(height-reminderChrome, 1)
-		body = strings.Join(windowAround(lines, listHeight, focusLine), "\n")
-		if focusedList && m.focus.Item >= 0 && m.focus.Item < len(sorted) {
-			notesText = flattenWhitespace(sorted[m.focus.Item].Notes)
+		lines, focusStart, focusEnd := m.reminderLines(width, sorted, focusedList)
+		body = strings.Join(windowAroundRange(lines, listHeight, focusStart, focusEnd), "\n")
+	}
+	body = padLinesTo(body, listHeight)
+
+	return header + "\n\n" + action + "\n\n" + m.renderReminderCalendar(width) + "\n\n" + listHeader + "\n" + body
+}
+
+func (m *Root) renderReminderCalendar(width int) string {
+	title := m.theme.BlockTitle
+	if m.focus.Column == ColReminders && m.focus.Block == RemindersCalendar {
+		title = m.theme.BlockTitleOn
+	}
+
+	cal := m.snap.Calendar
+	lines := []string{
+		title.Render(theme.IconCalendar + " Calendar"),
+		m.theme.Dim.Render(centeredLine(calendarMonthLabel(cal), width)),
+		m.theme.Dim.Render(calendarGridRow(width, 2, []string{"Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"})),
+	}
+	for _, week := range cal.Weeks {
+		cells := make([]string, len(week))
+		for i, day := range week {
+			cells[i] = m.reminderDayCell(day)
 		}
+		lines = append(lines, calendarGridRow(width, 2, cells))
 	}
+	return strings.Join(lines, "\n")
+}
 
-	// reminderChrome budgets exactly one line for the note, but the note
-	// comes from a huh multiline text field, so it can legitimately contain
-	// newlines. MaxWidth truncates each line without joining them, so a
-	// three-line note would render three rows and push the column two rows
-	// past its budget — clipping the bottom border off the whole column.
-	// flattenWhitespace above collapses it to a single line first.
-	notesLine := m.theme.Dim.Render(" ")
-	if notesText != "" {
-		notesLine = m.theme.Dim.MaxWidth(width).Render("note: " + notesText)
+func (m *Root) reminderDayCell(day app.CalendarDay) string {
+	return m.reminderDayStyle(day).Render(fmt.Sprintf("%2d", day.Date.Day))
+}
+
+func (m *Root) reminderDayStyle(day app.CalendarDay) lipgloss.Style {
+	style := m.theme.CalInMonth
+	if !day.InMonth {
+		style = m.theme.CalOutMonth
+	} else if day.IsFuture {
+		style = m.theme.CalFuture
 	}
-
-	return header + "\n\n" + action + "\n\n" + listHeader + "\n" + body + "\n\n" + notesLine
+	if day.HasReminder {
+		style = style.Foreground(m.theme.Warning).Underline(true)
+	}
+	if day.IsToday {
+		style = style.Faint(false).Bold(true).Foreground(m.theme.Accent)
+	}
+	return style
 }
 
 // countUpcoming is how many reminders in sorted are not yet completed — the
@@ -94,11 +122,11 @@ func countUpcoming(sorted []domain.Reminder) int {
 // (inserting a single "Done" divider the first time it crosses from
 // incomplete to completed), pre-wrapped to width via wrapPhysical so the
 // caller windows on real screen rows, not logical reminders — see
-// wrapPhysical's doc comment. It reports the absolute index of the first
-// physical line of the focused reminder, or -1 if the list doesn't
-// currently hold focus.
-func (m *Root) reminderLines(width int, sorted []domain.Reminder, focusedList bool) (lines []string, focusLine int) {
-	focusLine = -1
+// wrapPhysical's doc comment. It reports the focused reminder's half-open
+// physical-line span so its complete expansion can remain visible when it
+// fits the viewport.
+func (m *Root) reminderLines(width int, sorted []domain.Reminder, focusedList bool) (lines []string, focusStart, focusEnd int) {
+	focusStart, focusEnd = -1, -1
 	doneHeaderShown := false
 	for i, r := range sorted {
 		if r.Completed && !doneHeaderShown {
@@ -109,21 +137,26 @@ func (m *Root) reminderLines(width int, sorted []domain.Reminder, focusedList bo
 			doneHeaderShown = true
 		}
 		selected := focusedList && m.focus.Item == i
-		itemLines := m.renderReminderLines(width, r, selected)
+		expanded := r.ID == m.expandedReminder
+		itemStart := len(lines)
+		itemLines := m.renderReminderLines(width, r, selected, expanded)
 		if selected {
-			focusLine = len(lines)
+			focusStart = itemStart
 		}
 		lines = append(lines, itemLines...)
+		if expanded {
+			lines = append(lines, m.renderReminderDetails(width, r)...)
+		}
+		if selected {
+			focusEnd = len(lines)
+		}
 	}
-	return lines, focusLine
+	return lines, focusStart, focusEnd
 }
 
-// renderReminderLines renders one reminder row and wraps it to width,
-// returning every physical line it occupies. A selected reminder is padded
-// and reversed per physical line (rather than once over the whole, possibly
-// multi-line, row) so the highlight covers the full width of every wrapped
-// line, not just the first.
-func (m *Root) renderReminderLines(width int, r domain.Reminder, selected bool) []string {
+// renderReminderLines renders exactly one compact row. Long content is clipped
+// here; expanding the reminder exposes the full title and notes below it.
+func (m *Root) renderReminderLines(width int, r domain.Reminder, selected, expanded bool) []string {
 	check := theme.GlyphPending
 	if r.Completed {
 		check = theme.GlyphDone
@@ -138,12 +171,14 @@ func (m *Root) renderReminderLines(width int, r domain.Reminder, selected bool) 
 
 	if selected {
 		line := fmt.Sprintf("%s [%s] %s", markerGlyph(true), check, body)
-		rows := wrapPhysical(line, width)
-		out := make([]string, len(rows))
-		for i, row := range rows {
-			out[i] = m.theme.ItemSelected.Render(padTo(row, width))
+		rows := []string{lipgloss.NewStyle().MaxWidth(width).Render(line)}
+		if expanded {
+			rows = wrapPhysical(line, width)
 		}
-		return out
+		for i, row := range rows {
+			rows[i] = m.theme.ItemSelected.Render(padTo(row, width))
+		}
+		return rows
 	}
 
 	checkStyle := m.theme.CheckPending
@@ -156,7 +191,47 @@ func (m *Root) renderReminderLines(width int, r domain.Reminder, selected bool) 
 		checkStyle.Render(check),
 		status.Render(body),
 	)
-	return wrapPhysical(composite, width)
+	if expanded {
+		return wrapPhysical(composite, width)
+	}
+	return []string{lipgloss.NewStyle().MaxWidth(width).Render(composite)}
+}
+
+func (m *Root) renderReminderDetails(width int, r domain.Reminder) []string {
+	notes := flattenWhitespace(r.Notes)
+	if notes == "" {
+		notes = "—"
+	}
+
+	var lines []string
+	lines = append(lines, m.renderReminderDetailField(width, "Date", r.Date.Time().Format("Mon, Jan 2, 2006"), m.theme.Text)...)
+	lines = append(lines, m.renderReminderDetailField(width, "Status", m.reminderStatusLabel(r), m.reminderStatusStyle(r))...)
+	lines = append(lines, m.renderReminderDetailField(width, "Notes", notes, m.theme.Text)...)
+	return lines
+}
+
+func (m *Root) renderReminderDetailField(width int, label, value string, valueStyle lipgloss.Style) []string {
+	const indent = "  "
+	prefix := fmt.Sprintf("%-8s", label)
+	field := m.theme.Dim.Render(prefix) + valueStyle.Render(value)
+	lines := wrapPhysical(field, max(width-lipgloss.Width(indent), 1))
+	for i := range lines {
+		lines[i] = indent + lines[i]
+	}
+	return lines
+}
+
+func (m *Root) reminderStatusLabel(r domain.Reminder) string {
+	switch {
+	case r.Completed:
+		return "Completed"
+	case r.Date.Before(m.today):
+		return "Overdue"
+	case r.Date.Equal(m.today):
+		return "Due today"
+	default:
+		return "Upcoming"
+	}
 }
 
 func (m *Root) reminderStatusStyle(r domain.Reminder) lipgloss.Style {

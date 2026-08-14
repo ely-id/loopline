@@ -1,10 +1,6 @@
 package ui
 
-import (
-	tea "charm.land/bubbletea/v2"
-
-	"routine-tui/internal/app"
-)
+import tea "charm.land/bubbletea/v2"
 
 // handleKey dispatches a key press when no modal is open. Bindings follow
 // SPEC.md exactly; h/j/k/l are added as vim-style aliases.
@@ -46,32 +42,37 @@ func (m *Root) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil // a mutation is already in flight; drop this activate
 		}
 		return m.activate()
+	case "e":
+		if m.pending {
+			return m, nil
+		}
+		return m.editSelected()
+	case "t":
+		m.toggleExpansion()
+		return m, nil
+	case "delete":
+		if m.pending {
+			return m, nil
+		}
+		return m.deleteSelected()
 	case "<", "[":
-		return m, m.stepCalendarOrHeatmap(-1)
+		return m, m.stepCalendar(-1)
 	case ">", "]":
-		return m, m.stepCalendarOrHeatmap(1)
+		return m, m.stepCalendar(1)
 	}
 	return m, nil
 }
 
-func (m *Root) onHeatmap() bool {
-	return m.focus.Column == ColOverview && m.focus.Block == OverviewHeatmap
-}
-
 func (m *Root) onCalendar() bool {
-	return m.focus.Column == ColOverview && m.focus.Block == OverviewLifetime
+	return (m.focus.Column == ColOverview && m.focus.Block == OverviewCompletion) ||
+		(m.focus.Column == ColReminders && m.focus.Block == RemindersCalendar)
 }
 
-// stepCalendarOrHeatmap handles </> (aliased to [/]): on the calendar block
-// it moves a month, on the heatmap block it cycles the stats range.
-// Elsewhere it's a no-op. Up/down are reserved for item navigation only, per
-// SPEC.
-func (m *Root) stepCalendarOrHeatmap(delta int) tea.Cmd {
-	switch {
-	case m.onCalendar():
+// stepCalendar handles </> (aliased to [/]) on either calendar block.
+// Elsewhere it is a no-op. Up/down remain reserved for item navigation.
+func (m *Root) stepCalendar(delta int) tea.Cmd {
+	if m.onCalendar() {
 		return m.shiftMonth(delta)
-	case m.onHeatmap():
-		return m.cycleRange(delta)
 	}
 	return nil
 }
@@ -88,25 +89,12 @@ func (m *Root) shiftMonth(n int) tea.Cmd {
 	return m.fetchSnapshotCmd()
 }
 
-func (m *Root) cycleRange(delta int) tea.Cmd {
-	idx := 0
-	for i, r := range app.StatsRanges {
-		if r == m.statsRange {
-			idx = i
-			break
-		}
-	}
-	m.statsRange = app.StatsRanges[wrap(idx+delta, len(app.StatsRanges))]
-	return m.fetchSnapshotCmd()
-}
-
 // activate runs the effect of Enter on whatever is currently focused:
-// opening a modal, toggling a habit or reminder, or cycling the heatmap
-// range.
+// opening a modal or toggling a habit or reminder.
 func (m *Root) activate() (tea.Model, tea.Cmd) {
 	switch m.focus.Column {
 	case ColOverview:
-		return m.activateOverview()
+		return m, nil
 	case ColToday:
 		return m.activateToday()
 	case ColReminders:
@@ -115,31 +103,102 @@ func (m *Root) activate() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Root) activateOverview() (tea.Model, tea.Cmd) {
-	switch m.focus.Block {
-	case OverviewActions:
+func (m *Root) activateToday() (tea.Model, tea.Cmd) {
+	if m.focus.Block == TodayActions {
 		switch m.focus.Item {
 		case ActionAddHabit:
 			return m.openAddHabit()
 		case ActionAddRoutine:
 			return m.openAddRoutine()
 		}
-	case OverviewHeatmap:
-		return m, m.cycleRange(1)
-	}
-	return m, nil
-}
-
-func (m *Root) activateToday() (tea.Model, tea.Cmd) {
-	groups := m.snap.Today.Groups
-	if m.focus.Block < 0 || m.focus.Block >= len(groups) {
 		return m, nil
 	}
-	items := groups[m.focus.Block].Items
+
+	groups := m.snap.Today.Groups
+	group := m.focus.Block - 1
+	if group < 0 || group >= len(groups) {
+		return m, nil
+	}
+	if m.routineCollapsed(groups[group]) {
+		return m, nil
+	}
+	items := groups[group].Items
 	if m.focus.Item < 0 || m.focus.Item >= len(items) {
 		return m, nil
 	}
 	return m, m.toggleHabitCmd(items[m.focus.Item].Habit.ID)
+}
+
+// toggleExpansion changes presentation state only. Routine expansion applies
+// to the routine containing the selected habit; reminder expansion applies
+// to the selected row. Enter keeps its existing primary-action meaning.
+func (m *Root) toggleExpansion() {
+	switch m.focus.Column {
+	case ColToday:
+		groupIndex := m.focus.Block - 1
+		if groupIndex < 0 || groupIndex >= len(m.snap.Today.Groups) {
+			return
+		}
+		group := m.snap.Today.Groups[groupIndex]
+		if group.RoutineID == nil {
+			return // ungrouped habits are not a collapsible routine
+		}
+		if m.collapsedRoutines == nil {
+			m.collapsedRoutines = make(map[int64]bool)
+		}
+		id := *group.RoutineID
+		m.collapsedRoutines[id] = !m.collapsedRoutines[id]
+		if !m.collapsedRoutines[id] {
+			delete(m.collapsedRoutines, id)
+		}
+		m.focus.Item = 0
+	case ColReminders:
+		if m.focus.Block != RemindersList {
+			return
+		}
+		reminders := m.sortedReminders()
+		if m.focus.Item < 0 || m.focus.Item >= len(reminders) {
+			return
+		}
+		id := reminders[m.focus.Item].ID
+		if m.expandedReminder == id {
+			m.expandedReminder = 0
+		} else {
+			m.expandedReminder = id
+		}
+	}
+}
+
+func (m *Root) expansionHint() string {
+	switch m.focus.Column {
+	case ColToday:
+		groupIndex := m.focus.Block - 1
+		if groupIndex < 0 || groupIndex >= len(m.snap.Today.Groups) {
+			return ""
+		}
+		group := m.snap.Today.Groups[groupIndex]
+		if group.RoutineID == nil {
+			return ""
+		}
+		if m.routineCollapsed(group) {
+			return "expand"
+		}
+		return "collapse"
+	case ColReminders:
+		if m.focus.Block != RemindersList {
+			return ""
+		}
+		reminders := m.sortedReminders()
+		if m.focus.Item < 0 || m.focus.Item >= len(reminders) {
+			return ""
+		}
+		if m.expandedReminder == reminders[m.focus.Item].ID {
+			return "collapse"
+		}
+		return "expand"
+	default:
+		return ""
+	}
 }
 
 func (m *Root) activateReminders() (tea.Model, tea.Cmd) {

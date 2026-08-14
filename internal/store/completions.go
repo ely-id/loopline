@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // CompletionsBetween returns completions in [from, to] inclusive.

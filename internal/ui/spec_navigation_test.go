@@ -10,8 +10,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 
-	"routine-tui/internal/app"
-	"routine-tui/internal/domain"
+	"loopline/internal/app"
+	"loopline/internal/domain"
 )
 
 // This file is QA's independent verification of the navigation contract on
@@ -21,16 +21,13 @@ import (
 // quits without a modal, help blocks other keys, enter toggles a habit or
 // reminder) — see docs/QA.md for the cross-check. It focuses on: full
 // multi-step wrap cycles driven through real key events, independent
-// verification of the block/item counts the lead ratified, the calendar
-// block's month-shifting up/down (untested elsewhere), and the render-safety
+// verification of block/item counts, calendar month navigation, and render safety
 // requirement (no line ever exceeds the terminal width, across a range of
 // sizes, without panicking).
 
 // newRichBackend builds a fakeBackend with 2 Today groups (ungrouped=2
-// items, "Morning"=3 items) and 2 reminders. Matches the block/item counts
-// the lead ratified: overview 4 blocks (actions holds 2 items), today
-// len(Groups) blocks each with len(Items) items, reminders 2 blocks
-// (actions=1, list=len(Reminders)).
+// items, "Morning"=3 items) and 2 reminders. Today also has its Add block;
+// Reminders has action, calendar, and list blocks.
 func newRichBackend(today domain.Date) *fakeBackend {
 	b := newFakeBackend(today)
 	b.withRoutines(domain.Routine{Title: "Morning"})
@@ -112,13 +109,7 @@ func TestSpecNavigationTabFullWrapCycleResetsItem(t *testing.T) {
 		t.Fatalf("blockCount(Overview) = %d, want %d", bc, numOverviewBlocks)
 	}
 
-	// Move to item 1 within the Actions block so the item-reset is observable.
-	root = pressKey(t, root, "down")
-	if root.focus.Item != 1 {
-		t.Fatalf("setup: focus.Item = %d, want 1", root.focus.Item)
-	}
-
-	wantBlocks := []int{1, 2, 3, 0} // wraps back to 0 after 4 blocks
+	wantBlocks := []int{1, 0} // completion, then wrap to lifetime
 	for _, want := range wantBlocks {
 		root = pressKey(t, root, "tab")
 		if root.focus.Block != want {
@@ -144,9 +135,10 @@ func TestSpecNavigationUpDownClampWithoutWrapping(t *testing.T) {
 
 	// Move to the Today column, "Morning" block (3 items: indices 0..2).
 	root = pressKey(t, root, "right")
-	root = pressKey(t, root, "tab") // block 0 (ungrouped) -> block 1 (Morning)
-	if root.focus.Column != ColToday || root.focus.Block != 1 {
-		t.Fatalf("setup: focus = %+v, want ColToday block 1 (Morning)", root.focus)
+	root = pressKey(t, root, "tab") // Add -> ungrouped
+	root = pressKey(t, root, "tab") // ungrouped -> Morning
+	if root.focus.Column != ColToday || root.focus.Block != 2 {
+		t.Fatalf("setup: focus = %+v, want ColToday block 2 (Morning)", root.focus)
 	}
 
 	root = pressKey(t, root, "down")
@@ -180,35 +172,38 @@ func TestSpecNavigationBlockAndItemCountsMatchSnapshot(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(today))
 	snap := root.snap
 
-	if got := root.blockCount(ColOverview); got != 4 {
-		t.Fatalf("blockCount(Overview) = %d, want 4", got)
+	if got := root.blockCount(ColOverview); got != 2 {
+		t.Fatalf("blockCount(Overview) = %d, want 2", got)
 	}
-	if got := root.itemCount(ColOverview, OverviewActions); got != 2 {
-		t.Fatalf("itemCount(Overview, Actions) = %d, want 2", got)
-	}
-	for _, block := range []int{OverviewLifetime, OverviewWeek, OverviewHeatmap} {
+	for _, block := range []int{OverviewLifetime, OverviewCompletion} {
 		if got := root.itemCount(ColOverview, block); got != 1 {
 			t.Fatalf("itemCount(Overview, block %d) = %d, want 1", block, got)
 		}
 	}
 
-	if got := root.blockCount(ColToday); got != len(snap.Today.Groups) {
-		t.Fatalf("blockCount(Today) = %d, want %d (len(Groups))", got, len(snap.Today.Groups))
+	if got := root.blockCount(ColToday); got != 1+len(snap.Today.Groups) {
+		t.Fatalf("blockCount(Today) = %d, want %d (Add + len(Groups))", got, 1+len(snap.Today.Groups))
+	}
+	if got := root.itemCount(ColToday, TodayActions); got != 2 {
+		t.Fatalf("itemCount(Today, Add) = %d, want 2", got)
 	}
 	if len(snap.Today.Groups) != 2 || len(snap.Today.Groups[0].Items) != 2 || len(snap.Today.Groups[1].Items) != 3 {
 		t.Fatalf("fixture drifted: Today.Groups = %+v, want [2 items, 3 items]", snap.Today.Groups)
 	}
 	for i, g := range snap.Today.Groups {
-		if got := root.itemCount(ColToday, i); got != len(g.Items) {
-			t.Fatalf("itemCount(Today, %d) = %d, want %d", i, got, len(g.Items))
+		if got := root.itemCount(ColToday, i+1); got != len(g.Items) {
+			t.Fatalf("itemCount(Today, %d) = %d, want %d", i+1, got, len(g.Items))
 		}
 	}
 
-	if got := root.blockCount(ColReminders); got != 2 {
-		t.Fatalf("blockCount(Reminders) = %d, want 2", got)
+	if got := root.blockCount(ColReminders); got != 3 {
+		t.Fatalf("blockCount(Reminders) = %d, want 3", got)
 	}
 	if got := root.itemCount(ColReminders, RemindersActions); got != 1 {
 		t.Fatalf("itemCount(Reminders, Actions) = %d, want 1", got)
+	}
+	if got := root.itemCount(ColReminders, RemindersCalendar); got != 1 {
+		t.Fatalf("itemCount(Reminders, Calendar) = %d, want 1", got)
 	}
 	if got := root.itemCount(ColReminders, RemindersList); got != len(snap.Reminders) {
 		t.Fatalf("itemCount(Reminders, List) = %d, want %d (len(Reminders))", got, len(snap.Reminders))
@@ -217,7 +212,7 @@ func TestSpecNavigationBlockAndItemCountsMatchSnapshot(t *testing.T) {
 
 // --- empty column/block: no-op, never panics, end-to-end --------------------
 
-func TestSpecNavigationEmptyTodayColumnIsNoOpNotPanic(t *testing.T) {
+func TestSpecNavigationTodayActionsRemainAvailableWithoutHabits(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	root := newReadyRoot(t, newEmptyBackend(today))
 
@@ -226,19 +221,16 @@ func TestSpecNavigationEmptyTodayColumnIsNoOpNotPanic(t *testing.T) {
 		t.Fatalf("focus after entering the empty Today column = %+v, want ColToday/0/0", root.focus)
 	}
 
-	// None of these may panic, and none may move focus off (0,0).
+	// Today still has one useful block even when no habits are scheduled.
+	root = pressKey(t, root, "down")
+	if root.focus.Item != ActionAddRoutine {
+		t.Fatalf("down in empty Today's Add block selected item %d, want Add Routine", root.focus.Item)
+	}
 	root = pressKey(t, root, "tab")
 	root = pressKey(t, root, "shift+tab")
 	root = pressKey(t, root, "up")
-	root = pressKey(t, root, "down")
 	if root.focus.Column != ColToday || root.focus.Block != 0 || root.focus.Item != 0 {
-		t.Fatalf("focus after navigating an empty column = %+v, want unchanged ColToday/0/0", root.focus)
-	}
-
-	// Enter on an empty column must also be a safe no-op.
-	_, cmd := root.Update(keyMsg("enter"))
-	if cmd != nil {
-		t.Fatalf("enter on an empty Today column returned a non-nil cmd: %v", cmd)
+		t.Fatalf("focus after navigating the Add block = %+v, want ColToday/0/0", root.focus)
 	}
 }
 
@@ -251,10 +243,11 @@ func TestSpecNavigationFocusReclampsAfterNewSnapshot(t *testing.T) {
 	// Focus the last item of the "Morning" block (block 1, item 2 of 3).
 	root = pressKey(t, root, "right")
 	root = pressKey(t, root, "tab")
+	root = pressKey(t, root, "tab")
 	root = pressKey(t, root, "down")
 	root = pressKey(t, root, "down")
-	if root.focus != (Focus{Column: ColToday, Block: 1, Item: 2}) {
-		t.Fatalf("setup: focus = %+v, want ColToday/1/2", root.focus)
+	if root.focus != (Focus{Column: ColToday, Block: 2, Item: 2}) {
+		t.Fatalf("setup: focus = %+v, want ColToday/2/2", root.focus)
 	}
 
 	// A fresh snapshot shrinks Today down to a single, smaller group.
@@ -272,8 +265,8 @@ func TestSpecNavigationFocusReclampsAfterNewSnapshot(t *testing.T) {
 	if root.focus.Column != ColToday {
 		t.Fatalf("Column after reclamp = %d, want unchanged ColToday", root.focus.Column)
 	}
-	if root.focus.Block != 0 {
-		t.Fatalf("Block after reclamp = %d, want 0 (only one group left)", root.focus.Block)
+	if root.focus.Block != 1 {
+		t.Fatalf("Block after reclamp = %d, want 1 (Add plus one group left)", root.focus.Block)
 	}
 	if root.focus.Item != 1 {
 		t.Fatalf("Item after reclamp = %d, want 1 (clamped to the new last index)", root.focus.Item)
@@ -312,13 +305,13 @@ func TestSpecNavigationSnapshotReqIDGuardDiscardsStaleResponses(t *testing.T) {
 // SPEC.md reserves up/down for "move between selectable items inside the
 // current block" everywhere, with no calendar-specific exception. Month
 // navigation instead lives on </> (with [/] as aliases) — see keys.go's
-// stepCalendarOrHeatmap. This used to assert up/down shifted the month; that
-// binding was off-spec and has been moved.
+// stepCalendar. This used to assert up/down shifted the month; that binding
+// was off-spec and has been moved.
 
 func TestSpecNavigationCalendarBlockUpDownNeverShiftsMonth(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	root := newReadyRoot(t, newRichBackend(today))
-	root.focus = Focus{Column: ColOverview, Block: OverviewLifetime, Item: 0}
+	root.focus = Focus{Column: ColOverview, Block: OverviewCompletion, Item: 0}
 
 	if !root.calMonth.IsZero() {
 		t.Fatalf("setup: calMonth should start zero, got %s", root.calMonth)
@@ -341,7 +334,7 @@ func TestSpecNavigationCalendarBlockUpDownNeverShiftsMonth(t *testing.T) {
 func TestSpecNavigationCalendarBlockAngleBracketsShiftMonth(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	root := newReadyRoot(t, newRichBackend(today))
-	root.focus = Focus{Column: ColOverview, Block: OverviewLifetime, Item: 0}
+	root.focus = Focus{Column: ColOverview, Block: OverviewCompletion, Item: 0}
 
 	if !root.calMonth.IsZero() {
 		t.Fatalf("setup: calMonth should start zero, got %s", root.calMonth)
@@ -376,6 +369,27 @@ func TestSpecNavigationCalendarBlockAngleBracketsShiftMonth(t *testing.T) {
 	}
 }
 
+func TestSpecNavigationReminderCalendarSharesViewedMonth(t *testing.T) {
+	today := domain.MustParseDate("2026-08-10")
+	root := newReadyRoot(t, newRichBackend(today))
+	root.focus = Focus{Column: ColReminders, Block: RemindersCalendar}
+
+	root = pressKey(t, root, "]")
+	want := domain.MustParseDate("2026-09-01")
+	if root.calMonth != want {
+		t.Fatalf("calMonth after ] on Reminders calendar = %s, want %s", root.calMonth, want)
+	}
+	if root.snap.Calendar.Month != want.Month || root.snap.Calendar.Year != want.Year {
+		t.Fatalf("shared snapshot month = %s %d, want %s %d", root.snap.Calendar.Month, root.snap.Calendar.Year, want.Month, want.Year)
+	}
+
+	root.focus = Focus{Column: ColReminders, Block: RemindersList}
+	root = pressKey(t, root, "[")
+	if root.calMonth != want {
+		t.Fatalf("month key on reminder list changed calMonth to %s; it should only act on calendar blocks", root.calMonth)
+	}
+}
+
 // --- month navigation boundaries: Jan 31 / Mar 31 must not skip a month -----
 //
 // shiftMonth normalises to the 1st of the month before adding (see keys.go),
@@ -386,7 +400,7 @@ func TestSpecNavigationCalendarBlockAngleBracketsShiftMonth(t *testing.T) {
 func TestSpecMonthNavigationJan31ForwardDoesNotSkipFebruary(t *testing.T) {
 	today := domain.MustParseDate("2026-01-31")
 	root := newReadyRoot(t, newRichBackend(today))
-	root.focus = Focus{Column: ColOverview, Block: OverviewLifetime, Item: 0}
+	root.focus = Focus{Column: ColOverview, Block: OverviewCompletion, Item: 0}
 
 	root = pressKey(t, root, ">")
 	wantFeb := domain.MustParseDate("2026-02-01")
@@ -412,7 +426,7 @@ func TestSpecMonthNavigationJan31ForwardDoesNotSkipFebruary(t *testing.T) {
 func TestSpecMonthNavigationMar31BackwardDoesNotStayInMarch(t *testing.T) {
 	today := domain.MustParseDate("2026-03-31")
 	root := newReadyRoot(t, newRichBackend(today))
-	root.focus = Focus{Column: ColOverview, Block: OverviewLifetime, Item: 0}
+	root.focus = Focus{Column: ColOverview, Block: OverviewCompletion, Item: 0}
 
 	root = pressKey(t, root, "<")
 	wantFeb := domain.MustParseDate("2026-02-01")
@@ -469,7 +483,7 @@ func TestSpecRenderNeverExceedsTerminalWidthOrPanics(t *testing.T) {
 				}
 
 				belowMin := w < MinWidth || h < MinHeight
-				gotMinMsg := strings.Contains(content, "Terminal too small")
+				gotMinMsg := strings.Contains(content, "loopline needs a little more room")
 				if belowMin != gotMinMsg {
 					t.Fatalf("%dx%d: min-size message shown = %v, want %v (MinWidth=%d MinHeight=%d)", w, h, gotMinMsg, belowMin, MinWidth, MinHeight)
 				}

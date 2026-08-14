@@ -6,7 +6,7 @@ import (
 
 	lipgloss "charm.land/lipgloss/v2"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // columnTitle renders a column header, emphasised when that column holds
@@ -39,6 +39,51 @@ func shortDate(d domain.Date) string {
 	return d.Time().Format("Jan 2")
 }
 
+func centeredLine(s string, width int) string {
+	left := max((width-lipgloss.Width(s))/2, 0)
+	return strings.Repeat(" ", left) + s
+}
+
+func calendarCell(s string, width int) string {
+	w := lipgloss.Width(s)
+	if w >= width {
+		return s
+	}
+	left := (width - w) / 2
+	return strings.Repeat(" ", left) + s + strings.Repeat(" ", width-w-left)
+}
+
+// calendarGridRow lays out a seven-cell calendar row with responsive one- or
+// two-cell gaps and centers the resulting grid in the available column. Both
+// calendars use it so weekday headers and dates always share exact columns.
+func calendarGridRow(width, cellWidth int, cells []string) string {
+	if len(cells) == 0 {
+		return ""
+	}
+	gap := 0
+	if len(cells) > 1 {
+		gap = clampInt((width-cellWidth*len(cells))/(len(cells)-1), 1, 2)
+	}
+	gridWidth := cellWidth*len(cells) + gap*(len(cells)-1)
+	parts := make([]string, len(cells))
+	for i, cell := range cells {
+		parts[i] = calendarCell(cell, cellWidth)
+	}
+	return strings.Repeat(" ", max((width-gridWidth)/2, 0)) + strings.Join(parts, strings.Repeat(" ", gap))
+}
+
+// renderBar is the shared fixed-width progress primitive. Callers choose the
+// semantic style and glyph vocabulary; the fill math remains identical.
+func renderBar(width, numerator, denominator int, filled, empty lipgloss.Style, filledGlyph, emptyGlyph string) string {
+	fill := 0
+	if denominator > 0 {
+		fill = width * numerator / denominator
+	}
+	fill = clampInt(fill, 0, width)
+	return filled.Render(strings.Repeat(filledGlyph, fill)) +
+		empty.Render(strings.Repeat(emptyGlyph, width-fill))
+}
+
 // windowAround returns the slice of lines that fits within height, keeping
 // the line at focus visible (centred when there's room on both sides,
 // clamped at either end of lines otherwise). focus < 0 means "no anchor":
@@ -61,6 +106,32 @@ func windowAround(lines []string, height, focus int) []string {
 	}
 	if start > len(lines)-height {
 		start = len(lines) - height
+	}
+	return lines[start : start+height]
+}
+
+// windowAroundRange is windowAround for a multi-line selected item. It keeps
+// the full half-open [focusStart, focusEnd) span visible whenever that span
+// fits; an oversized expansion starts at its selected row and is clipped only
+// at the viewport boundary.
+func windowAroundRange(lines []string, height, focusStart, focusEnd int) []string {
+	if focusStart < 0 || focusEnd <= focusStart {
+		return windowAround(lines, height, -1)
+	}
+	if height <= 0 {
+		return nil
+	}
+	if len(lines) <= height {
+		return lines
+	}
+	span := focusEnd - focusStart
+	start := focusStart
+	if span < height {
+		start -= (height - span) / 2
+	}
+	start = clampInt(start, 0, len(lines)-height)
+	if span <= height && start+height < focusEnd {
+		start = focusEnd - height
 	}
 	return lines[start : start+height]
 }

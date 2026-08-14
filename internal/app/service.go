@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // ErrNotFound is returned when an operation targets a missing entity.
@@ -39,10 +39,6 @@ func (s *Service) Snapshot(ctx context.Context, req SnapshotRequest) (Snapshot, 
 	if month.IsZero() {
 		month = today
 	}
-	statsRange := req.Range
-	if statsRange == "" {
-		statsRange = RangeMonth
-	}
 
 	habits, err := s.store.Habits(ctx)
 	if err != nil {
@@ -73,11 +69,8 @@ func (s *Service) Snapshot(ctx context.Context, req SnapshotRequest) (Snapshot, 
 
 	calStart := month.StartOfMonth().StartOfWeek()
 	calEnd := month.EndOfMonth().StartOfWeek().AddDays(6)
-	weekStart := today.StartOfWeek()
-	heatStart, heatEnd := heatmapBounds(statsRange, today, first)
-
-	from := earliest(first, calStart, weekStart, heatStart)
-	to := latest(today, calEnd, weekStart.AddDays(6), heatEnd)
+	from := earliest(first, calStart)
+	to := latest(today, calEnd)
 
 	comps, err := s.store.CompletionsBetween(ctx, from, to)
 	if err != nil {
@@ -86,23 +79,17 @@ func (s *Service) Snapshot(ctx context.Context, req SnapshotRequest) (Snapshot, 
 	index := domain.CompletionIndex(comps)
 
 	reminderDays := make(map[domain.Date]bool, len(reminders))
-	openReminders := 0
 	for _, r := range reminders {
 		reminderDays[r.Date] = true
-		if !r.Completed {
-			openReminders++
-		}
 	}
 
 	snap := Snapshot{
 		Today:     s.todayView(habits, routines, index, today),
 		Calendar:  s.calendar(habits, index, reminderDays, month, today),
-		Week:      s.week(habits, index, reminderDays, today),
-		Heatmap:   s.heatmap(habits, index, statsRange, heatStart, heatEnd),
 		Reminders: reminders,
 		Routines:  activeRoutines(routines, today),
 	}
-	snap.Overview = s.overview(habits, snap.Routines, index, first, today, openReminders)
+	snap.Overview = s.overview(habits, index, first, today)
 	return snap, nil
 }
 
@@ -190,80 +177,8 @@ func (s *Service) calendarDay(habits []domain.Habit, index map[domain.Date]map[i
 	}
 }
 
-// week builds the ISO week block for the week containing today.
-func (s *Service) week(habits []domain.Habit, index map[domain.Date]map[int64]bool, reminderDays map[domain.Date]bool, today domain.Date) WeekView {
-	isoYear, isoWeek := today.ISOWeek()
-	start := today.StartOfWeek()
-
-	days := make([]CalendarDay, 7)
-	for i := range days {
-		d := start.AddDays(i)
-		days[i] = s.calendarDay(habits, index, reminderDays, d, today)
-		days[i].InMonth = true
-	}
-	return WeekView{ISOYear: isoYear, ISOWeek: isoWeek, Start: start, Days: days}
-}
-
-// heatmapBounds resolves the first and last date of a stats range. The end is
-// always today: the contribution view never shows the future.
-func heatmapBounds(r StatsRange, today, first domain.Date) (start, end domain.Date) {
-	end = today
-	switch r {
-	case RangeWeek:
-		start = today.StartOfWeek()
-	case Range90d:
-		start = today.AddDays(-89)
-	case RangeYear:
-		start = today.AddDays(-364)
-	case RangeAll:
-		start = first
-	default: // RangeMonth
-		start = today.StartOfMonth()
-	}
-	if start.After(end) {
-		start = end
-	}
-	return start, end
-}
-
-// heatmap lays the range out as Monday-first week columns, oldest first. Cells
-// outside the range keep a zero Date so the UI can render them as padding.
-func (s *Service) heatmap(habits []domain.Habit, index map[domain.Date]map[int64]bool, r StatsRange, start, end domain.Date) Heatmap {
-	hm := Heatmap{Range: r, Start: start, End: end}
-	for weekStart := start.StartOfWeek(); !weekStart.After(end); weekStart = weekStart.AddDays(7) {
-		col := make([]HeatmapCell, 7)
-		for i := range col {
-			d := weekStart.AddDays(i)
-			if d.Before(start) || d.After(end) {
-				continue
-			}
-			sum := domain.SummarizeDay(habits, index[d], d)
-			col[i] = HeatmapCell{Date: d, Summary: sum, Level: heatLevel(sum)}
-		}
-		hm.Columns = append(hm.Columns, col)
-	}
-	return hm
-}
-
-// heatLevel buckets a day's completion into five shades.
-func heatLevel(s domain.DailySummary) int {
-	if s.Scheduled == 0 || s.Completed == 0 {
-		return 0
-	}
-	switch pct := s.Percent(); {
-	case pct <= 25:
-		return 1
-	case pct <= 50:
-		return 2
-	case pct <= 75:
-		return 3
-	default:
-		return 4
-	}
-}
-
 // overview computes the lifetime block.
-func (s *Service) overview(habits []domain.Habit, routines []domain.Routine, index map[domain.Date]map[int64]bool, first, today domain.Date, openReminders int) Overview {
+func (s *Service) overview(habits []domain.Habit, index map[domain.Date]map[int64]bool, first, today domain.Date) Overview {
 	summaries := make([]domain.DailySummary, 0, today.DaysSince(first)+1)
 	scheduled, completed, tracked := 0, 0, 0
 	for d := first; !d.After(today); d = d.AddDays(1) {
@@ -276,31 +191,20 @@ func (s *Service) overview(habits []domain.Habit, routines []domain.Routine, ind
 		}
 	}
 
-	active := 0
-	for _, h := range habits {
-		if h.ActiveOn(today) {
-			active++
-		}
-	}
-
 	pct := 0
 	if scheduled > 0 {
 		pct = completed * 100 / scheduled
 	}
 
 	return Overview{
-		Today:         today,
 		CurrentStreak: domain.CurrentStreak(summaries, today),
 		BestStreak:    domain.BestStreak(summaries),
-		// Counted from the same summaries the calendar and heatmap use, rather
+		// Counted from the same authoritative summaries the calendar uses, rather
 		// than from raw completion rows, so a completion that no longer counts
 		// as scheduled cannot inflate the lifetime total.
 		TotalCompletions: completed,
-		ActiveHabits:     active,
-		ActiveRoutines:   len(routines),
 		DaysTracked:      tracked,
 		LifetimePercent:  pct,
-		OpenReminders:    openReminders,
 	}
 }
 
@@ -425,6 +329,101 @@ func (s *Service) AddReminder(ctx context.Context, in NewReminder) error {
 		return fmt.Errorf("create reminder: %w", err)
 	}
 	return nil
+}
+
+// EditHabit updates an existing habit in place. Identity, creation/archive
+// boundaries and completion rows are preserved; only the fields represented
+// by NewHabit are editable.
+func (s *Service) EditHabit(ctx context.Context, id int64, in NewHabit) error {
+	today := s.clock.Today()
+	habits, err := s.store.Habits(ctx)
+	if err != nil {
+		return fmt.Errorf("load habits: %w", err)
+	}
+	existing := findHabit(habits, id)
+	if existing == nil || existing.ArchivedOn != nil {
+		return fmt.Errorf("habit %d: %w", id, ErrNotFound)
+	}
+
+	updated := *existing
+	updated.Title = strings.TrimSpace(in.Title)
+	updated.RoutineID = in.RoutineID
+	updated.Schedule = in.Schedule
+	updated.Notes = strings.TrimSpace(in.Notes)
+	if updated.Schedule.Kind == "" {
+		updated.Schedule = domain.DailySchedule()
+	}
+	if err := updated.Validate(); err != nil {
+		return err
+	}
+	if updated.RoutineID != nil {
+		routines, err := s.store.Routines(ctx)
+		if err != nil {
+			return fmt.Errorf("load routines: %w", err)
+		}
+		if findRoutine(routines, *updated.RoutineID) == nil {
+			return fmt.Errorf("routine %d: %w", *updated.RoutineID, ErrNotFound)
+		}
+	}
+	if !sameRoutine(existing.RoutineID, updated.RoutineID) {
+		updated.Position = nextHabitPosition(habits, updated.RoutineID)
+	}
+	if err := s.store.UpdateHabit(ctx, updated); err != nil {
+		return fmt.Errorf("update habit: %w", err)
+	}
+	return s.refreshSummary(ctx, today)
+}
+
+// EditRoutine renames a routine in place. Position, identity and contained
+// habit relationships are preserved.
+func (s *Service) EditRoutine(ctx context.Context, id int64, in NewRoutine) error {
+	title := strings.TrimSpace(in.Title)
+	if title == "" {
+		return errors.New("routine title must not be empty")
+	}
+	routines, err := s.store.Routines(ctx)
+	if err != nil {
+		return fmt.Errorf("load routines: %w", err)
+	}
+	existing := findRoutine(routines, id)
+	if existing == nil || existing.ArchivedOn != nil {
+		return fmt.Errorf("routine %d: %w", id, ErrNotFound)
+	}
+	updated := *existing
+	updated.Title = title
+	if err := s.store.UpdateRoutine(ctx, updated); err != nil {
+		return fmt.Errorf("update routine: %w", err)
+	}
+	return nil
+}
+
+// EditReminder updates editable reminder fields in place while preserving its
+// completed status and identity.
+func (s *Service) EditReminder(ctx context.Context, id int64, in NewReminder) error {
+	title := strings.TrimSpace(in.Title)
+	if title == "" {
+		return errors.New("reminder title must not be empty")
+	}
+	if in.Date.IsZero() {
+		return errors.New("reminder date must be set")
+	}
+	reminders, err := s.store.Reminders(ctx)
+	if err != nil {
+		return fmt.Errorf("load reminders: %w", err)
+	}
+	for _, existing := range reminders {
+		if existing.ID != id {
+			continue
+		}
+		existing.Title = title
+		existing.Date = in.Date
+		existing.Notes = strings.TrimSpace(in.Notes)
+		if err := s.store.UpdateReminder(ctx, existing); err != nil {
+			return fmt.Errorf("update reminder: %w", err)
+		}
+		return nil
+	}
+	return fmt.Errorf("reminder %d: %w", id, ErrNotFound)
 }
 
 // ToggleReminder flips a reminder's completed state.

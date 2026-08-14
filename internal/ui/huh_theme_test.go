@@ -8,7 +8,7 @@ import (
 
 	lipgloss "charm.land/lipgloss/v2"
 
-	"routine-tui/internal/theme"
+	"loopline/internal/theme"
 )
 
 // TestHuhThemeIsANSI16Only is the regression test for FIX 4: SPEC's Styling

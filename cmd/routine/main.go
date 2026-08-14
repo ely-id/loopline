@@ -1,4 +1,4 @@
-// Command routine is the routine-tui entry point: a keyboard-first daily
+// Command routine is loopline's compatibility source entry point: a keyboard-first daily
 // habit, routine and reminder manager for the terminal.
 package main
 
@@ -10,10 +10,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"routine-tui/internal/app"
-	"routine-tui/internal/domain"
-	"routine-tui/internal/store"
-	"routine-tui/internal/ui"
+	"loopline/internal/app"
+	"loopline/internal/domain"
+	"loopline/internal/store"
+	"loopline/internal/ui"
 )
 
 // compile-time proof that the SQLite store satisfies the application's
@@ -22,7 +22,7 @@ var _ app.Store = (*store.SQLite)(nil)
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "routine:", err)
+		fmt.Fprintln(os.Stderr, "loopline:", err)
 		os.Exit(1)
 	}
 }

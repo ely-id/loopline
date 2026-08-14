@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // The real Root polls Backend.Today() once a minute (see commands.go's
@@ -107,6 +107,10 @@ func keyMsg(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "esc":
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "delete":
+		return tea.KeyPressMsg{Code: tea.KeyDelete}
+	case "backspace":
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	default:
 		r := []rune(s)
 		return tea.KeyPressMsg{Code: r[0], Text: s}
@@ -148,7 +152,7 @@ func TestWindowSizeBelowMinimumRendersMinSizeMessage(t *testing.T) {
 	m = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 15})
 
 	view := m.View()
-	if got := view.Content; !strings.Contains(got, "Terminal too small") {
+	if got := view.Content; !strings.Contains(got, "loopline needs a little more room") {
 		t.Fatalf("View at 60x15 = %q, want min-size message", got)
 	}
 }
@@ -160,7 +164,7 @@ func TestWindowSizeAtMinimumRendersColumns(t *testing.T) {
 	m.width, m.height = MinWidth, MinHeight
 
 	view := m.View()
-	if strings.Contains(view.Content, "Terminal too small") {
+	if strings.Contains(view.Content, "loopline needs a little more room") {
 		t.Fatal("View at exactly MinWidth x MinHeight should render columns, not the min-size message")
 	}
 	if !strings.Contains(view.Content, "Overview") || !strings.Contains(view.Content, "Reminders") {
@@ -200,6 +204,7 @@ func TestEnterTogglesHabit(t *testing.T) {
 	m := newReadyRoot(t, backend)
 
 	m = pressKey(t, m, "right") // overview -> today
+	m = pressKey(t, m, "tab")   // Add actions -> first habit group
 	if m.focus.Column != ColToday {
 		t.Fatalf("column = %d, want ColToday", m.focus.Column)
 	}
@@ -223,7 +228,8 @@ func TestAddHabitFormEndToEnd(t *testing.T) {
 	backend := newFakeBackend(today)
 	m := newReadyRoot(t, backend)
 
-	// Overview column, actions block, "Add habit" item is focus 0,0,0 already.
+	// Add Habit is the first item in Today's Add block.
+	m = pressKey(t, m, "right")
 	m = pressKey(t, m, "enter")
 	if m.modal == nil {
 		t.Fatal("enter on 'Add habit' should open a modal")
@@ -253,6 +259,7 @@ func TestEscClosesModalWithoutSubmitting(t *testing.T) {
 	backend := newFakeBackend(today)
 	m := newReadyRoot(t, backend)
 
+	m = pressKey(t, m, "right")
 	m = pressKey(t, m, "enter") // open Add habit
 	if m.modal == nil {
 		t.Fatal("modal should be open")
@@ -288,6 +295,7 @@ func TestQuitOnlyWhenNoModalOpen(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	m := newReadyRoot(t, newFakeBackend(today))
 
+	m = pressKey(t, m, "right")
 	m = pressKey(t, m, "enter") // open Add habit modal
 	if m.modal == nil {
 		t.Fatal("modal should be open")
@@ -335,7 +343,8 @@ func TestReminderToggleAndAddReminderForm(t *testing.T) {
 		t.Fatalf("backend.reminders = %+v, want one reminder", backend.reminders)
 	}
 
-	m = pressKey(t, m, "tab") // actions block -> list block
+	m = pressKey(t, m, "tab") // actions block -> calendar
+	m = pressKey(t, m, "tab") // calendar -> list
 	if m.focus.Block != RemindersList {
 		t.Fatalf("block = %d, want RemindersList", m.focus.Block)
 	}

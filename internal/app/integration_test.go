@@ -12,9 +12,9 @@ import (
 	"context"
 	"testing"
 
-	"routine-tui/internal/app"
-	"routine-tui/internal/domain"
-	"routine-tui/internal/store"
+	"loopline/internal/app"
+	"loopline/internal/domain"
+	"loopline/internal/store"
 )
 
 func TestServiceIntegrationWithRealSQLiteStore(t *testing.T) {
@@ -73,6 +73,56 @@ func TestServiceIntegrationWithRealSQLiteStore(t *testing.T) {
 		t.Fatalf("Today.Groups = %+v, want 2 groups (ungrouped + Morning)", snap.Today.Groups)
 	}
 
+	// In-place edit use cases must preserve identity, relationships and the
+	// completion row through the real SQLite repositories.
+	if err := svc.EditRoutine(ctx, routineID, app.NewRoutine{Title: "First light"}); err != nil {
+		t.Fatalf("EditRoutine: %v", err)
+	}
+	if err := svc.EditHabit(ctx, stretchID, app.NewHabit{
+		Title: "Mobility", RoutineID: &routineID, Schedule: domain.DailySchedule(), Notes: "five minutes",
+	}); err != nil {
+		t.Fatalf("EditHabit: %v", err)
+	}
+	completions, err := db.CompletionsBetween(ctx, today, today)
+	if err != nil || len(completions) != 1 || completions[0].HabitID != stretchID {
+		t.Fatalf("completion history after EditHabit = %+v, %v", completions, err)
+	}
+	editedHabits, err := db.Habits(ctx)
+	if err != nil {
+		t.Fatalf("Habits after EditHabit: %v", err)
+	}
+	for _, h := range editedHabits {
+		if h.ID == stretchID && (h.Title != "Mobility" || h.Notes != "five minutes" || h.RoutineID == nil || *h.RoutineID != routineID) {
+			t.Fatalf("edited habit did not retain identity/membership: %+v", h)
+		}
+	}
+
+	if err := svc.AddReminder(ctx, app.NewReminder{Title: "Exam", Date: today, Notes: "room 1"}); err != nil {
+		t.Fatalf("AddReminder: %v", err)
+	}
+	reminders, err := db.Reminders(ctx)
+	if err != nil || len(reminders) != 1 {
+		t.Fatalf("Reminders after AddReminder = %+v, %v", reminders, err)
+	}
+	reminderID := reminders[0].ID
+	if err := svc.ToggleReminder(ctx, reminderID); err != nil {
+		t.Fatalf("ToggleReminder: %v", err)
+	}
+	if err := svc.EditReminder(ctx, reminderID, app.NewReminder{Title: "Algorithms exam", Date: today.AddDays(1), Notes: "room 2"}); err != nil {
+		t.Fatalf("EditReminder: %v", err)
+	}
+	reminders, err = db.Reminders(ctx)
+	if err != nil || len(reminders) != 1 || reminders[0].ID != reminderID || !reminders[0].Completed || reminders[0].Title != "Algorithms exam" {
+		t.Fatalf("reminder edit did not preserve identity/status: %+v, %v", reminders, err)
+	}
+	if err := svc.DeleteReminder(ctx, reminderID); err != nil {
+		t.Fatalf("DeleteReminder: %v", err)
+	}
+	reminders, err = db.Reminders(ctx)
+	if err != nil || len(reminders) != 0 {
+		t.Fatalf("Reminders after DeleteReminder = %+v, %v", reminders, err)
+	}
+
 	// Exercise the real store's atomic ToggleCompletion transaction on the
 	// same habit again: it must flip cleanly back off, not double-fire.
 	if err := svc.ToggleHabit(ctx, stretchID); err != nil {
@@ -97,8 +147,8 @@ func TestServiceIntegrationWithRealSQLiteStore(t *testing.T) {
 		t.Fatalf("Habits after DeleteRoutine = %+v, %v, want both habits to survive", habitsAfter, err)
 	}
 	for _, h := range habitsAfter {
-		if h.Title == "Stretch" && h.RoutineID != nil {
-			t.Fatalf("Stretch still has RoutineID %v after its routine was deleted", h.RoutineID)
+		if h.ID == stretchID && h.RoutineID != nil {
+			t.Fatalf("edited habit still has RoutineID %v after its routine was deleted", h.RoutineID)
 		}
 	}
 

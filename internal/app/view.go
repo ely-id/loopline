@@ -3,40 +3,8 @@ package app
 import (
 	"time"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
-
-// StatsRange is the selectable window of the heatmap / analytics block.
-type StatsRange string
-
-// Selectable analytics ranges, in the order the UI cycles through them.
-const (
-	RangeWeek  StatsRange = "week"
-	RangeMonth StatsRange = "month"
-	Range90d   StatsRange = "90d"
-	RangeYear  StatsRange = "year"
-	RangeAll   StatsRange = "all"
-)
-
-// StatsRanges is the ordered list of selectable ranges.
-var StatsRanges = []StatsRange{RangeWeek, RangeMonth, Range90d, RangeYear, RangeAll}
-
-// Label is the short human label shown in the UI.
-func (r StatsRange) Label() string {
-	switch r {
-	case RangeWeek:
-		return "week"
-	case RangeMonth:
-		return "month"
-	case Range90d:
-		return "90 days"
-	case RangeYear:
-		return "year"
-	case RangeAll:
-		return "all"
-	}
-	return string(r)
-}
 
 // HabitItem is one actionable habit in today's list.
 type HabitItem struct {
@@ -80,43 +48,13 @@ type CalendarMonth struct {
 	Weeks [][]CalendarDay
 }
 
-// WeekView is the current ISO week block.
-type WeekView struct {
-	ISOYear int
-	ISOWeek int
-	Start   domain.Date
-	Days    []CalendarDay // exactly 7, Monday first
-}
-
-// HeatmapCell is one contribution square.
-type HeatmapCell struct {
-	Date    domain.Date
-	Summary domain.DailySummary
-	// Level buckets completion for colouring: 0 none, 1..4 increasing.
-	Level int
-}
-
-// Heatmap is the contribution view for the selected range. Columns are weeks
-// (Monday first); each column holds seven cells, oldest week first. Cells
-// outside the range are zero-valued with a zero Date.
-type Heatmap struct {
-	Range   StatsRange
-	Start   domain.Date
-	End     domain.Date
-	Columns [][]HeatmapCell
-}
-
 // Overview is the lifetime summary block.
 type Overview struct {
-	Today            domain.Date
 	CurrentStreak    int
 	BestStreak       int
 	TotalCompletions int
-	ActiveHabits     int
-	ActiveRoutines   int
 	DaysTracked      int
 	LifetimePercent  int
-	OpenReminders    int
 }
 
 // Snapshot is everything the UI needs for one render pass. The UI never queries
@@ -125,8 +63,6 @@ type Snapshot struct {
 	Today     TodayView
 	Overview  Overview
 	Calendar  CalendarMonth
-	Week      WeekView
-	Heatmap   Heatmap
 	Reminders []domain.Reminder
 	Routines  []domain.Routine
 }
@@ -136,11 +72,9 @@ type SnapshotRequest struct {
 	// Month is any date inside the month the calendar should display.
 	// Zero means the month containing today.
 	Month domain.Date
-	// Range selects the heatmap window. Empty means RangeMonth.
-	Range StatsRange
 }
 
-// NewHabit is the input for creating a habit.
+// NewHabit contains the editable fields used when creating or updating a habit.
 type NewHabit struct {
 	Title     string
 	RoutineID *int64
@@ -148,12 +82,12 @@ type NewHabit struct {
 	Notes     string
 }
 
-// NewRoutine is the input for creating a routine.
+// NewRoutine contains the editable fields used when creating or updating a routine.
 type NewRoutine struct {
 	Title string
 }
 
-// NewReminder is the input for creating a reminder.
+// NewReminder contains the editable fields used when creating or updating a reminder.
 type NewReminder struct {
 	Title string
 	Date  domain.Date

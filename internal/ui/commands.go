@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"routine-tui/internal/app"
+	"loopline/internal/app"
 )
 
 // midnightTickInterval controls how often Root polls Backend.Today() for a
@@ -27,12 +27,12 @@ func doAction(fn func(context.Context) error) tea.Cmd {
 	}
 }
 
-// fetchSnapshotCmd requests a fresh Snapshot for the current month/range
-// selection, stamped with a new monotonic request ID so Update can discard
+// fetchSnapshotCmd requests a fresh Snapshot for the viewed month, stamped
+// with a new monotonic request ID so Update can discard
 // it if a newer request finishes first.
 func (m *Root) fetchSnapshotCmd() tea.Cmd {
 	backend := m.backend
-	req := app.SnapshotRequest{Month: m.calMonth, Range: m.statsRange}
+	req := app.SnapshotRequest{Month: m.calMonth}
 	m.snapReqID++
 	id := m.snapReqID
 	return func() tea.Msg {
@@ -80,4 +80,28 @@ func addRoutineCmd(backend Backend, in app.NewRoutine) tea.Cmd {
 
 func addReminderCmd(backend Backend, in app.NewReminder) tea.Cmd {
 	return doAction(func(ctx context.Context) error { return backend.AddReminder(ctx, in) })
+}
+
+func editHabitCmd(backend Backend, id int64, in app.NewHabit) tea.Cmd {
+	return doAction(func(ctx context.Context) error { return backend.EditHabit(ctx, id, in) })
+}
+
+func editRoutineCmd(backend Backend, id int64, in app.NewRoutine) tea.Cmd {
+	return doAction(func(ctx context.Context) error { return backend.EditRoutine(ctx, id, in) })
+}
+
+func editReminderCmd(backend Backend, id int64, in app.NewReminder) tea.Cmd {
+	return doAction(func(ctx context.Context) error { return backend.EditReminder(ctx, id, in) })
+}
+
+func deleteHabitCmd(backend Backend, id int64) tea.Cmd {
+	return doAction(func(ctx context.Context) error { return backend.DeleteHabit(ctx, id) })
+}
+
+func deleteRoutineCmd(backend Backend, id int64) tea.Cmd {
+	return doAction(func(ctx context.Context) error { return backend.DeleteRoutine(ctx, id) })
+}
+
+func deleteReminderCmd(backend Backend, id int64) tea.Cmd {
+	return doAction(func(ctx context.Context) error { return backend.DeleteReminder(ctx, id) })
 }

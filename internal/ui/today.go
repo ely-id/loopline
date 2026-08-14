@@ -6,22 +6,20 @@ import (
 
 	lipgloss "charm.land/lipgloss/v2"
 
-	"routine-tui/internal/app"
-	"routine-tui/internal/domain"
-	"routine-tui/internal/theme"
+	"loopline/internal/app"
+	"loopline/internal/domain"
+	"loopline/internal/theme"
 )
 
-// todayChrome is the number of lines renderToday always reserves around the
-// habit list: title, a blank line, a blank line, then the progress bar. That
-// bar is written unconditionally so it always renders at the bottom of the
-// column, however long the habit list is.
-const todayChrome = 4
+// todayChrome is the fixed content around the habit viewport: column title,
+// compact Add block, section spacing, and the bottom-pinned progress bar.
+const todayChrome = 8
 
 // renderToday builds the whole "today" column: title, one visually separated
 // block per habit group (windowed to fit height so the focused habit is
 // always visible), then the day's progress bar pinned to the bottom.
 func (m *Root) renderToday(width, height int) string {
-	title := m.columnTitle(ColToday, fmt.Sprintf("Today — %s", weekdayLabel(m.snap.Today.Date)))
+	title := m.columnTitle(ColToday, fmt.Sprintf("%s Today — %s", theme.IconToday, weekdayLabel(m.snap.Today.Date)))
 	progress := m.renderDayProgress(width, m.snap.Today.Summary)
 	listHeight := max(height-todayChrome, 1)
 
@@ -35,7 +33,20 @@ func (m *Root) renderToday(width, height int) string {
 	// habit list with a gap styledColumn's own padding leaves beneath it.
 	body = padLinesTo(body, listHeight)
 
-	return title + "\n\n" + body + "\n\n" + progress
+	return title + "\n\n" + m.renderTodayActions() + "\n\n" + body + "\n\n" + progress
+}
+
+func (m *Root) renderTodayActions() string {
+	focused := m.focus.Column == ColToday && m.focus.Block == TodayActions
+	title := m.theme.BlockTitle
+	if focused {
+		title = m.theme.BlockTitleOn
+	}
+	return strings.Join([]string{
+		title.Render("Add"),
+		m.renderActionLine("Habit", focused && m.focus.Item == ActionAddHabit),
+		m.renderActionLine("Routine", focused && m.focus.Item == ActionAddRoutine),
+	}, "\n")
 }
 
 // todayLines flattens every habit group into one *physical* line per row (an
@@ -53,16 +64,30 @@ func (m *Root) todayLines(width int) (lines []string, focusLine int) {
 		if gi > 0 {
 			lines = append(lines, "")
 		}
+		block := gi + 1 // block 0 is the Add actions block
 		if g.Title != "" {
 			style := m.theme.BlockTitle
-			if focusedCol && m.focus.Block == gi {
+			if focusedCol && m.focus.Block == block {
 				style = m.theme.BlockTitleOn
 			}
-			title := style.Render(fmt.Sprintf("%s  %d/%d", g.Title, g.Completed, g.Scheduled))
+			prefix := ""
+			if g.RoutineID != nil {
+				prefix = theme.GlyphExpanded + " "
+				if m.routineCollapsed(g) {
+					prefix = theme.GlyphCollapsed + " "
+				}
+			}
+			title := style.Render(fmt.Sprintf("%s%s  %d/%d", prefix, g.Title, g.Completed, g.Scheduled))
+			if focusedCol && m.focus.Block == block && m.routineCollapsed(g) {
+				focusLine = len(lines)
+			}
 			lines = append(lines, wrapPhysical(title, width)...)
 		}
+		if m.routineCollapsed(g) {
+			continue
+		}
 		for ii, item := range g.Items {
-			selected := focusedCol && m.focus.Block == gi && m.focus.Item == ii
+			selected := focusedCol && m.focus.Block == block && m.focus.Item == ii
 			itemLines := m.renderHabitLines(width, item, selected)
 			if selected {
 				focusLine = len(lines)
@@ -71,6 +96,10 @@ func (m *Root) todayLines(width int) (lines []string, focusLine int) {
 		}
 	}
 	return lines, focusLine
+}
+
+func (m *Root) routineCollapsed(group app.HabitGroup) bool {
+	return group.RoutineID != nil && m.collapsedRoutines[*group.RoutineID]
 }
 
 // renderHabitLines renders one habit row and wraps it to width, returning
@@ -118,17 +147,11 @@ func (m *Root) renderHabitLines(width int, item app.HabitItem, selected bool) []
 func (m *Root) renderDayProgress(width int, sum domain.DailySummary) string {
 	barWidth := clampInt(width-16, 10, 40)
 	pct := sum.Percent()
-	filled := 0
-	if sum.Scheduled > 0 {
-		filled = barWidth * sum.Completed / sum.Scheduled
-	}
-	if filled > barWidth {
-		filled = barWidth
-	}
-	bar := m.theme.ProgressBarFilled.Render(strings.Repeat(theme.ProgressFilled, filled)) +
-		m.theme.ProgressBarEmpty.Render(strings.Repeat(theme.ProgressEmpty, barWidth-filled))
+	stage := completionStage(sum)
+	stageStyle := m.theme.CompletionStyles[stage]
+	bar := renderBar(barWidth, sum.Completed, sum.Scheduled, stageStyle, m.theme.ProgressBarEmpty, theme.ProgressFilled, theme.ProgressEmpty)
 
-	label := m.theme.ProgressLabel.Render(fmt.Sprintf("%d/%d  %d%%", sum.Completed, sum.Scheduled, pct))
+	label := m.theme.ProgressLabel.Inherit(stageStyle).Render(fmt.Sprintf("%d/%d  %d%%", sum.Completed, sum.Scheduled, pct))
 	return bar + "  " + label
 }
 

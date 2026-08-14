@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // assertViewFits renders the full composed view and checks the invariants a
@@ -73,12 +73,10 @@ func TestColumnContentNeverOutgrowsItsBorder(t *testing.T) {
 	}
 }
 
-// TestMultilineReminderNoteStaysOneLine is the regression test for the second
-// clipping blocker: the note is rendered into a one-line budget, but comes
-// from a huh multiline text field. MaxWidth truncates each line without
-// joining them, so a multi-line note pushed the reminders column past its
-// budget and its bottom border was clipped off.
-func TestMultilineReminderNoteStaysOneLine(t *testing.T) {
+// TestExpandedMultilineReminderNoteStaysWithinColumn is the regression guard
+// for expanded free text: the full note is part of the windowed list, so it
+// may wrap but can never escape the column's physical-row budget.
+func TestExpandedMultilineReminderNoteStaysWithinColumn(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newFakeBackend(today)
 	for i := 0; i < 20; i++ {
@@ -93,9 +91,15 @@ func TestMultilineReminderNoteStaysOneLine(t *testing.T) {
 	m = send(t, m, tea.WindowSizeMsg{Width: MinWidth, Height: MinHeight})
 	m = step(t, m, m.Init())
 	m.focus = Focus{Column: ColReminders, Block: RemindersList, Item: 0}
+	m = pressKey(t, m, "t")
 
 	out := assertViewFits(t, m, MinWidth, MinHeight, "multiline reminder note")
-	if !strings.Contains(out, "line one line two") {
-		t.Fatalf("multi-line note should be flattened onto one row, got:\n%s", out)
+	details := flattenWhitespace(stripANSI(strings.Join(m.renderReminderDetails(25, m.sortedReminders()[0]), "\n")))
+	if !strings.Contains(details, "line one line two") {
+		t.Fatalf("expanded multi-line note should be safely normalized and wrapped, got:\n%s", out)
+	}
+	remindersColumn := flattenWhitespace(stripANSI(m.renderReminders(25, MinHeight-3)))
+	if !strings.Contains(remindersColumn, "line five line six") {
+		t.Fatalf("expanded reminder details that fit the viewport lost the note tail:\n%s", remindersColumn)
 	}
 }

@@ -8,9 +8,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	huh "charm.land/huh/v2"
 
-	"routine-tui/internal/app"
-	"routine-tui/internal/domain"
-	"routine-tui/internal/theme"
+	"loopline/internal/app"
+	"loopline/internal/domain"
+	"loopline/internal/theme"
 )
 
 // modalState wraps a huh/v2 form together with the closure that turns its
@@ -20,6 +20,7 @@ import (
 type modalState struct {
 	form   *huh.Form
 	submit func() tea.Cmd
+	accept func() bool // nil means every completed form submits
 }
 
 // updateModal forwards a message to the open form and reacts to its
@@ -31,10 +32,13 @@ func (m *Root) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch m.modal.form.State {
 	case huh.StateCompleted:
-		submit := m.modal.submit
+		state := m.modal
 		m.modal = nil
+		if state.accept != nil && !state.accept() {
+			return m, cmd
+		}
 		m.pending = true // guard: the mutation this submit dispatches is now in flight
-		return m, tea.Batch(cmd, submit())
+		return m, tea.Batch(cmd, state.submit())
 	case huh.StateAborted:
 		m.modal = nil
 		return m, nil
@@ -110,25 +114,56 @@ func (m *Root) openAddReminder() (tea.Model, tea.Cmd) {
 }
 
 func newAddHabitForm(backend Backend, routines []domain.Routine) *modalState {
-	title := ""
+	initial := app.NewHabit{Schedule: domain.DailySchedule()}
+	return newHabitForm("Add habit", routines, initial, func(in app.NewHabit) tea.Cmd {
+		return addHabitCmd(backend, in)
+	})
+}
+
+func newEditHabitForm(backend Backend, routines []domain.Routine, habit domain.Habit) *modalState {
+	initial := app.NewHabit{
+		Title:     habit.Title,
+		RoutineID: habit.RoutineID,
+		Schedule:  habit.Schedule,
+		Notes:     habit.Notes,
+	}
+	return newHabitForm("Edit habit", routines, initial, func(in app.NewHabit) tea.Cmd {
+		return editHabitCmd(backend, habit.ID, in)
+	})
+}
+
+func newHabitForm(heading string, routines []domain.Routine, initial app.NewHabit, save func(app.NewHabit) tea.Cmd) *modalState {
+	title := initial.Title
 	routineID := int64(0)
-	kind := "daily"
+	if initial.RoutineID != nil {
+		routineID = *initial.RoutineID
+	}
+	kind := string(initial.Schedule.Kind)
+	if kind == "" {
+		kind = string(domain.ScheduleDaily)
+	}
 	var weekdays []time.Weekday
-	notes := ""
+	weekdayOrder := []time.Weekday{
+		time.Monday, time.Tuesday, time.Wednesday, time.Thursday,
+		time.Friday, time.Saturday, time.Sunday,
+	}
+	if initial.Schedule.Kind == domain.ScheduleWeekdays {
+		for _, day := range weekdayOrder {
+			if initial.Schedule.Weekdays.Has(day) {
+				weekdays = append(weekdays, day)
+			}
+		}
+	}
+	notes := initial.Notes
 
 	routineOpts := []huh.Option[int64]{huh.NewOption("(none)", int64(0))}
 	for _, r := range routines {
 		routineOpts = append(routineOpts, huh.NewOption(r.Title, r.ID))
 	}
 
-	weekdayOpts := []huh.Option[time.Weekday]{
-		huh.NewOption("Mon", time.Monday),
-		huh.NewOption("Tue", time.Tuesday),
-		huh.NewOption("Wed", time.Wednesday),
-		huh.NewOption("Thu", time.Thursday),
-		huh.NewOption("Fri", time.Friday),
-		huh.NewOption("Sat", time.Saturday),
-		huh.NewOption("Sun", time.Sunday),
+	weekdayOpts := make([]huh.Option[time.Weekday], 0, len(weekdayOrder))
+	for _, day := range weekdayOrder {
+		weekdayOpts = append(weekdayOpts, huh.NewOption(day.String()[:3], day))
 	}
 
 	form := huh.NewForm(huh.NewGroup(
@@ -143,7 +178,7 @@ func newAddHabitForm(backend Backend, routines []domain.Routine) *modalState {
 			Title("Weekdays (only used when schedule = specific weekdays)").
 			Options(weekdayOpts...).Value(&weekdays),
 		huh.NewText().Title("Notes").Value(&notes),
-	).Title("Add habit")).WithTheme(theme.HuhTheme())
+	).Title(heading)).WithTheme(theme.HuhTheme())
 
 	submit := func() tea.Cmd {
 		sched := domain.DailySchedule()
@@ -155,7 +190,7 @@ func newAddHabitForm(backend Backend, routines []domain.Routine) *modalState {
 			id := routineID
 			routine = &id
 		}
-		return addHabitCmd(backend, app.NewHabit{
+		return save(app.NewHabit{
 			Title:     title,
 			RoutineID: routine,
 			Schedule:  sched,
@@ -167,23 +202,49 @@ func newAddHabitForm(backend Backend, routines []domain.Routine) *modalState {
 }
 
 func newAddRoutineForm(backend Backend) *modalState {
-	title := ""
+	return newRoutineForm("Add routine", "", func(in app.NewRoutine) tea.Cmd {
+		return addRoutineCmd(backend, in)
+	})
+}
+
+func newEditRoutineForm(backend Backend, routine domain.Routine) *modalState {
+	return newRoutineForm("Edit routine", routine.Title, func(in app.NewRoutine) tea.Cmd {
+		return editRoutineCmd(backend, routine.ID, in)
+	})
+}
+
+func newRoutineForm(heading, initialTitle string, save func(app.NewRoutine) tea.Cmd) *modalState {
+	title := initialTitle
 
 	form := huh.NewForm(huh.NewGroup(
 		huh.NewInput().Title("Routine title").Value(&title).Validate(requiredText("title")),
-	).Title("Add routine")).WithTheme(theme.HuhTheme())
+	).Title(heading)).WithTheme(theme.HuhTheme())
 
 	submit := func() tea.Cmd {
-		return addRoutineCmd(backend, app.NewRoutine{Title: title})
+		return save(app.NewRoutine{Title: title})
 	}
 
 	return &modalState{form: form, submit: submit}
 }
 
 func newAddReminderForm(backend Backend, today domain.Date) *modalState {
-	title := ""
-	date := today.String()
-	notes := ""
+	initial := app.NewReminder{Date: today}
+	return newReminderForm("Add reminder", initial, func(in app.NewReminder) tea.Cmd {
+		return addReminderCmd(backend, in)
+	})
+}
+
+func newEditReminderForm(backend Backend, reminder domain.Reminder) *modalState {
+	initial := app.NewReminder{Title: reminder.Title, Date: reminder.Date, Notes: reminder.Notes}
+	return newReminderForm("Edit reminder", initial, func(in app.NewReminder) tea.Cmd {
+		return editReminderCmd(backend, reminder.ID, in)
+	})
+}
+
+func newReminderForm(heading string, initial app.NewReminder, save func(app.NewReminder) tea.Cmd) *modalState {
+	title := initial.Title
+	date := initial.Date.String()
+	notes := initial.Notes
 
 	form := huh.NewForm(huh.NewGroup(
 		huh.NewInput().Title("Reminder title").Value(&title).Validate(requiredText("title")),
@@ -194,15 +255,27 @@ func newAddReminderForm(backend Backend, today domain.Date) *modalState {
 			return nil
 		}),
 		huh.NewText().Title("Notes").Value(&notes),
-	).Title("Add reminder")).WithTheme(theme.HuhTheme())
+	).Title(heading)).WithTheme(theme.HuhTheme())
 
 	submit := func() tea.Cmd {
 		d, err := domain.ParseDate(strings.TrimSpace(date))
 		if err != nil {
 			return func() tea.Msg { return actionErrMsg{err: err} }
 		}
-		return addReminderCmd(backend, app.NewReminder{Title: title, Date: d, Notes: notes})
+		return save(app.NewReminder{Title: title, Date: d, Notes: notes})
 	}
 
 	return &modalState{form: form, submit: submit}
+}
+
+func newDeleteForm(kind, title, description string, submit func() tea.Cmd) *modalState {
+	confirmed := false
+	confirm := huh.NewConfirm().
+		Title(fmt.Sprintf("Delete %s %q?", kind, title)).
+		Description(description).
+		Affirmative("Delete").
+		Negative("Cancel").
+		Value(&confirmed)
+	form := huh.NewForm(huh.NewGroup(confirm).Title("Confirm deletion")).WithTheme(theme.HuhTheme())
+	return &modalState{form: form, submit: submit, accept: func() bool { return confirmed }}
 }

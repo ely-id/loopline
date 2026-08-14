@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // PutDailySummary writes the derived snapshot for a date (insert or

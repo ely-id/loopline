@@ -1,21 +1,20 @@
 # QA Conformance Report
 
-Independent verification of SPEC.md against the built application, recorded
-at final integration. Supersedes the pre-implementation version of this
-document, which listed every row as `BLOCKED` because the vertical slice was
-not yet wired.
+Verification of the current SPEC.md against the evolved `loopline` interface.
+The v0.1 tag remains the historical MVP baseline; this report describes the
+working tree after the monthly-calendar redesign.
 
 Status legend: `PASS`, `FAIL`, `PARTIAL`, `N/A`.
 
 Verified against a release gate of `go fmt ./...`, `go test ./...`,
-`go vet ./...`, `go build ./cmd/routine` (all green) plus a manual pty run of
+`go vet ./...`, `go build -o loopline ./cmd/routine` (all green) plus a manual pty run of
 the built binary against a scratch database.
 
-## 1. MVP definition of done (SPEC.md §"MVP definition of done")
+## 1. Current definition of done (SPEC.md §"Current definition of done")
 
 | # | Requirement | Status | Evidence |
 |---|---|---|---|
-| 1 | Application starts successfully | PASS | manual pty run of `./routine -db <tmp>`; renders and exits cleanly on `q` |
+| 1 | Application starts successfully | PASS | manual 96x33 pty run of `./loopline -db <tmp>`; renders and exits cleanly on `q` |
 | 2 | Three-column layout works | PASS | `internal/ui/layout_test.go`, `spec_render_test.go`; confirmed visually |
 | 3 | Keyboard navigation works exactly as specified | PASS | `internal/ui/spec_navigation_test.go`, `focus_test.go` |
 | 4 | Habits can be created | PASS | manual E2E via the huh form; row present in `habits` |
@@ -23,15 +22,28 @@ the built binary against a scratch database.
 | 6 | Habits can optionally belong to routines | PASS | `NewHabit.RoutineID` end-to-end; `internal/app/service_test.go` |
 | 7 | Habits can be completed | PASS | manual E2E toggle; `completions` row written, column showed `1/1 100%` |
 | 8 | State survives application restart | PASS | `internal/store/spec_persistence_test.go` (close + reopen) |
-| 9 | Daily progress works | PASS | `internal/domain/summary_test.go`, `internal/ui/today.go` progress bar |
-| 10 | Calendar displays completion state | PASS | `internal/app/service_test.go` calendar assertions; `overview.go:dayCellStyle` |
-| 11 | Heatmap displays historical completion | PASS | `internal/ui/spec_heatmap_test.go`, `heatmap_range_test.go` |
+| 9 | Daily progress works | PASS | `internal/domain/summary_test.go`; shared semantic color stage in `internal/ui/today.go` |
+| 10 | Monthly calendar displays authoritative historical completion | PASS | `service_test.go:TestServiceCalendarDerivesHistoryFromHabitsAndCompletions`; semantic boundary/color coverage in `completion_calendar_test.go` |
+| 11 | Conventional calendar displays today and reminder dates | PASS | `completion_calendar_test.go:TestReminderCalendarStylePreservesTodayAndReminderDates` |
 | 12 | Reminders can be created | PASS | `internal/app/service_test.go`, `internal/store/reminders_test.go` |
-| 13 | Reminder dates appear in calendar | PASS | `CalendarDay.HasReminder` wired; underline in `dayCellStyle` |
-| 14 | Week/month/90d/year/all analytics filters work | PASS | `internal/ui/render_test.go` (cycling) + `heatmap_range_test.go` (long ranges are downsampled, not truncated) |
-| 15 | `go test ./...` passes | PASS | release gate |
-| 16 | `go vet ./...` passes | PASS | release gate |
-| 17 | `go build ./cmd/routine` succeeds | PASS | release gate |
+| 13 | Month navigation works from either calendar | PASS | `internal/ui/spec_navigation_test.go`, including Jan/Mar boundaries and shared Reminders month |
+| 14 | Three-column layout works comfortably at approximately 96 x 33 | PASS | `layout_test.go`, `column_fit_test.go`, `height_budget_test.go`; manual 96x33 pty render |
+| 15 | Habits, routines and reminders can be edited/deleted safely | PASS | service preservation tests plus modal-driven `crud_test.go` |
+| 16 | `go test ./...` passes | PASS | release gate |
+| 17 | `go vet ./...` passes | PASS | release gate |
+| 18 | `go build -o loopline ./cmd/routine` succeeds | PASS | release gate; output verified executable |
+
+### Release-candidate polish acceptance
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Permanent completion legend removed | PASS | `TestCompletionCalendarHasNoPermanentLegend` |
+| Year Progress handles day-of-year, leap years and ISO weeks | PASS | `year_progress_test.go`; seeded 96x33 pty run |
+| Routine `t` expand/collapse and focus correction | PASS | `expansion_test.go:TestRoutineExpandCollapseCorrectsFocusAndHidesChildren`; manual pty interaction |
+| Reminder `t` details, completed rows, missing notes and long wrapping | PASS | `expansion_test.go`, `column_fit_test.go`; seeded 96x33 pty interaction |
+| `e` edit and physical Delete confirmation | PASS | `crud_test.go`; in-place app/store semantics in `service_test.go` and persistence tests |
+| Shared ANSI-16 completion semantics in calendar and Today | PASS | `completion_calendar_test.go`; seeded 0/low/medium/high/complete month and 100% Today pty run |
+| `loopline` identity and executable | PASS | fixed heading width test; real `./loopline` launch; no release-facing legacy command |
 
 ## 2. Navigation model (SPEC.md §"Navigation")
 
@@ -41,6 +53,10 @@ the built binary against a scratch database.
 | Tab/Shift+Tab moves between blocks in current column | PASS | `spec_navigation_test.go` |
 | Up/Down moves between selectable items in current block | PASS | `spec_navigation_test.go` |
 | Enter activates action / toggles habit / confirms forms | PASS | `spec_activation_test.go` |
+| `e` edits the selected habit, routine or reminder | PASS | `crud_test.go`; pre-population and cancellation coverage |
+| `t` expands/collapses a focused routine or reminder | PASS | `expansion_test.go`; help and contextual footer coverage |
+| Delete confirms before deleting the selected entity | PASS | `crud_test.go`; default-cancel and focus/expansion cleanup coverage |
+| `<`/`>` and `[`/`]` move the focused calendar month | PASS | `spec_navigation_test.go` |
 | Esc closes modal or goes back | PASS | `spec_navigation_test.go`; `Root.Update` intercepts `esc` ahead of the form |
 | `?` opens help | PASS | `spec_navigation_test.go` |
 | `q` quits only when no modal is active | PASS | `spec_navigation_test.go`; modal and help paths both swallow `q` |
@@ -64,8 +80,9 @@ the built binary against a scratch database.
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Column widths calculated dynamically | PASS | `columnWidths`, `internal/ui/layout_test.go` |
-| Below minimum size, shows a clear message | PASS | `MinWidth` 96 / `MinHeight` 35, `renderMinSize`; pinned by `layout_test.go` |
+| Column widths calculated dynamically | PASS | `columnWidths`, including 31/34/29 minimum and 1:2:1 growth; `layout_test.go` |
+| Below minimum size, shows a clear message | PASS | `MinWidth` 96 / `MinHeight` 33, `renderMinSize`; pinned by `layout_test.go` |
+| Six-week calendar, expansions and long lists do not clip at 96x33 | PASS | `layout_test.go`, `column_fit_test.go`, `height_budget_test.go`; manual seeded run |
 
 ## 5. Styling
 
@@ -73,9 +90,10 @@ the built binary against a scratch database.
 |---|---|---|
 | No bundled/selected font | PASS | no font assets in the tree |
 | ANSI 16-color palette | PASS | `internal/theme/theme.go` uses only `lipgloss.Color("0")`..`("15")` |
-| No hardcoded RGB colors | PASS | no `#` colors anywhere in `internal/theme` |
-| Terminal background remains terminal-controlled | PASS | no `Background(...)` call in `internal/theme` |
-| Square/simple borders, no gradients, sparing Unicode | PASS | source inspection; confirmed visually |
+| No hardcoded RGB colors | PASS | style constructors use ANSI indices only; RGB literals appear only in explanatory comments about overridden defaults |
+| Terminal background remains terminal-controlled | PASS | no full-page/column background; only local focused/blurred form buttons use ANSI backgrounds |
+| Square/simple borders, no gradients, selective fixed Nerd Font icons | PASS | fixed icon width test; source inspection; confirmed visually |
+| Completion intensity is semantic in color and remains legible without it | PASS | none/red/yellow/white/green/bright-green scale plus `·░▒▓▆█`; `completion_calendar_test.go` |
 
 ## 6. Core domain
 
@@ -100,7 +118,3 @@ the built binary against a scratch database.
 3. UI backend commands use `context.Background()` rather than the Bubble Tea
    program context, so an in-flight SQLite call is not cancelled on quit.
    Bounded by the 5s `busy_timeout`.
-4. For long heatmap ranges the block merges weeks into a single column
-   (`k` weeks per column, shown in the title as `(Nw/col)`) because a
-   53-week year cannot fit in a ~27-column pane. Full range is represented;
-   per-week resolution is not.

@@ -1,6 +1,6 @@
 package ui
 
-import "routine-tui/internal/app"
+import "loopline/internal/app"
 
 // snapshotMsg carries a freshly loaded Snapshot. The model always replaces
 // its data wholesale on receipt; it never mutates view data locally.

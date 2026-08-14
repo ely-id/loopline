@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 const habitColumns = `id, title, routine_id, schedule_kind, schedule_weekdays, position, created_on, archived_on, notes`

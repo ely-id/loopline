@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;]*m")
@@ -42,17 +42,17 @@ func manyShortItemsBackend(today domain.Date) *fakeBackend {
 	return b
 }
 
-// TestSpecRenderHeatmapProgressAndFocusedItemArePresent is qa's independent
+// TestSpecRenderCalendarsProgressAndFocusedItemArePresent is qa's independent
 // check of the render-safety requirement beyond "doesn't panic" (already
 // covered by render_test.go's TestViewDoesNotPanicAcrossFocusPositions and
-// TestViewNeverExceedsWindowWidth): the heatmap block, the Today progress
+// TestViewNeverExceedsWindowWidth): both calendars, the Today progress
 // bar, and the currently focused item must actually appear as visible text
 // in View().Content — at the accepted minimum terminal size, and with
 // oversized habit/reminder lists that force windowAround's scrolling. This
 // is the SPEC "must not corrupt the UI" requirement made concrete: a column
 // that silently dropped its bottom half (e.g. a height-clamping regression)
 // would pass every existing panic/width test while failing this one.
-func TestSpecRenderHeatmapProgressAndFocusedItemArePresent(t *testing.T) {
+func TestSpecRenderCalendarsProgressAndFocusedItemArePresent(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 
 	sizes := [][2]int{{MinWidth, MinHeight}, {140, 45}}
@@ -64,11 +64,11 @@ func TestSpecRenderHeatmapProgressAndFocusedItemArePresent(t *testing.T) {
 
 			// Focus the last (30th) habit, buried at the bottom of a list
 			// long enough to require scrolling.
-			root.focus = Focus{Column: ColToday, Block: 0, Item: 29}
+			root.focus = Focus{Column: ColToday, Block: 1, Item: 29}
 			content := stripANSI(root.View().Content)
 
-			if !strings.Contains(content, "Heatmap ·") {
-				t.Error("heatmap block header not present in the rendered view")
+			if !strings.Contains(content, "Completion") || !strings.Contains(content, "Calendar") {
+				t.Error("completion and reminder calendar headers must both be present")
 			}
 
 			sum := root.snap.Today.Summary

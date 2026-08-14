@@ -1,4 +1,4 @@
-# routine-tui — Architecture Contract
+# loopline — Architecture Contract
 
 Authoritative for cross-package boundaries. SPEC.md remains authoritative for
 product behaviour. If this document and SPEC.md disagree, SPEC.md wins and the
@@ -19,7 +19,8 @@ cmd/routine ──> internal/ui ──> internal/app ──> internal/domain
 - `internal/ui` never touches SQLite and never calls `time.Now()`.
 - `cmd/routine` wires everything: resolve XDG path → open SQLite → enable
   foreign keys → run migrations → build `app.Service` → build `ui.Root` → run
-  the Bubble Tea program.
+  the Bubble Tea program. It remains the compatibility source path, while
+  release builds use `go build -o loopline ./cmd/routine`.
 
 ## 2. File ownership (hard rule: do not edit files you do not own)
 
@@ -57,7 +58,7 @@ if you believe a new dependency is required.
 
 - The `completions` table is the **source of truth** for what was done. One row
   per `(habit_id, date)`. Never mutated after the fact except by toggling.
-- Habits and routines are **archived, never hard-deleted** (`archived_on` date).
+- Habits are **archived, never hard-deleted** (`archived_on` date).
   A habit is scheduled on date D only if
   `created_on <= D && (archived_on == nil || D < archived_on) && schedule.AppliesOn(D)`.
   This keeps historical "scheduled" counts stable.
@@ -125,7 +126,8 @@ strictly before it if `upTo` itself is incomplete.
 
 - `store.DefaultPath() (string, error)` — `$XDG_DATA_HOME/routine-tui/routine.db`,
   falling back to `~/.local/share/routine-tui/routine.db`; creates the directory
-  with `0o700`.
+  with `0o700`. This legacy directory is intentionally stable across the
+  product rename so existing user data remains discoverable.
 - `store.Open(path string) (*store.SQLite, error)` — `modernc.org/sqlite`,
   driver name `sqlite`; sets `PRAGMA foreign_keys=ON`, `journal_mode=WAL`,
   `busy_timeout=5000`; runs migrations; `db.SetMaxOpenConns(1)`.
@@ -192,6 +194,9 @@ func (s *Service) ToggleHabit(ctx, habitID int64) error
 func (s *Service) AddHabit(ctx, NewHabit) error
 func (s *Service) AddRoutine(ctx, NewRoutine) error
 func (s *Service) AddReminder(ctx, NewReminder) error
+func (s *Service) EditHabit(ctx, id int64, NewHabit) error
+func (s *Service) EditRoutine(ctx, id int64, NewRoutine) error
+func (s *Service) EditReminder(ctx, id int64, NewReminder) error
 func (s *Service) ToggleReminder(ctx, id int64) error
 func (s *Service) DeleteHabit(ctx, id int64) error
 func (s *Service) DeleteRoutine(ctx, id int64) error
@@ -203,7 +208,8 @@ func (s *Service) DeleteReminder(ctx, id int64) error
 ANSI-16 only. Use `lipgloss.Color("0")`..`lipgloss.Color("15")`; never set a
 background on the page body so the terminal background shows through. No RGB
 hex unless justified in a comment. Exposes a `theme.Theme` value built by
-`theme.New()` holding named `lipgloss.Style` fields, plus heatmap level styles.
+`theme.New()` holding named `lipgloss.Style` fields, including completion
+calendar intensity styles whose glyph shape remains meaningful without colour.
 
 This package also owns the form palette: `theme.HuhTheme()` returns a
 `huh.Theme` built from the same ANSI-16 colours, applied to every modal in
@@ -218,7 +224,7 @@ no first-party package).
 Bubble Tea **v2** (`charm.land/bubbletea/v2`): `Update(tea.Msg) (tea.Model, tea.Cmd)`,
 `View() tea.View`, key messages are `tea.KeyPressMsg` (`msg.String()`).
 
-Root model owns *all* focus state:
+Root model owns *all* focus and ephemeral expansion state:
 
 ```go
 type Focus struct {
@@ -231,26 +237,31 @@ type Focus struct {
 Modal state is a separate field on the root; when a modal is open it consumes
 every key except `esc`. Child models are **presentational**: they receive
 `Focus` + data and return a string; they hold no independent focus state.
+Routine collapsed IDs and the one expanded reminder ID also live on Root and
+are never persisted.
 
 Column blocks:
 
-- Column 0 (overview): `0` actions (Add habit, Add routine), `1` lifetime
-  overview + calendar, `2` ISO week, `3` heatmap (left/right or enter cycles
-  the range — note left/right still change column when the block has no
-  horizontal action; use `enter` to cycle range and `[`/`]` as aliases).
-- Column 1 (today): one block per habit group — ungrouped first (only when
-  non-empty), then each routine in position order. Items are habits.
-- Column 2 (reminders): `0` action (Add reminder), `1` upcoming reminders list.
+- Column 0 (overview): `0` lifetime history, `1` monthly completion calendar;
+  compact Year progress follows as non-interactive content and receives no
+  focus block.
+- Column 1 (today): `0` Add habit/Add routine, then one block per habit group —
+  ungrouped first (only when non-empty), followed by routines in position order.
+- Column 2 (reminders): `0` Add reminder, `1` conventional calendar, `2`
+  upcoming reminders list.
 
 Keys, exactly as SPEC.md: `left/right` column, `tab/shift+tab` block,
-`up/down` item, `enter` activate/toggle, `esc` close modal, `?` help,
-`q` quit when no modal is open. `h/j/k/l` may be added as aliases.
+`up/down` item, `enter` activate/toggle, `e` edit the selected entity, `t`
+expand/collapse structured items, physical `Delete` opens a destructive
+confirmation, `</>` (and `[/]`) previous/next month on either calendar,
+`esc` close modal, `?` help, `q` quit when no modal is open. `h/j/k/l` may be
+added as aliases.
 
 Responsive: compute three column widths from `tea.WindowSizeMsg`. Below
-`ui.MinWidth = 96` or `ui.MinHeight = 35`, render a single centred
-minimum-size message and nothing else. `MinHeight` is derived from the
-overview column's worst-case content budget (six-week month) and is pinned by
-a test, so adding content there must either fit or raise the constant.
+`ui.MinWidth = 96` or `ui.MinHeight = 33`, render a single centred minimum-size
+message and nothing else. At the minimum, a one-row footer and column borders
+leave 30 content rows. A six-week reminder calendar still leaves 15 list rows;
+this real budget is pinned by end-to-end tests.
 Height budgeting must measure **wrapped** height at the real usable column
 width, not logical string count.
 
@@ -265,6 +276,9 @@ type Backend interface {
     AddHabit(ctx context.Context, in app.NewHabit) error
     AddRoutine(ctx context.Context, in app.NewRoutine) error
     AddReminder(ctx context.Context, in app.NewReminder) error
+    EditHabit(ctx context.Context, id int64, in app.NewHabit) error
+    EditRoutine(ctx context.Context, id int64, in app.NewRoutine) error
+    EditReminder(ctx context.Context, id int64, in app.NewReminder) error
     ToggleReminder(ctx context.Context, id int64) error
     DeleteHabit(ctx context.Context, id int64) error
     DeleteRoutine(ctx context.Context, id int64) error
@@ -276,13 +290,16 @@ All backend calls happen inside `tea.Cmd`s that return a message; `Update`
 never blocks on I/O. After any mutation the UI requests a fresh `Snapshot` and
 replaces its data wholesale — no local mutation of view data.
 
-Forms use `huh/v2` inside the modal. `huh.Form.Update` returns
-`(huh.Model, tea.Cmd)` and `Form.View() string`.
+Add/edit forms and destructive confirmations reuse `huh/v2` inside the modal.
+Edit forms are pre-populated and update stable IDs in place. Confirmations
+default to cancel; routine deletion explicitly states that children survive as
+ungrouped habits. `huh.Form.Update` returns `(huh.Model, tea.Cmd)` and
+`Form.View() string`.
 
 ## 6. Working agreements
 
 - After meaningful changes run: `go fmt ./...`, `go test ./...`, `go vet ./...`,
-  `go build ./cmd/routine`. The tree may not compile during phase 1 while
+  `go build -o loopline ./cmd/routine`. The tree may not compile during phase 1 while
   another agent's package is still stubbed — that is expected; make sure *your*
   package compiles (`go build ./internal/<yours>/...`).
 - Prefer the standard library. No new abstractions, no ORM, no DI framework.

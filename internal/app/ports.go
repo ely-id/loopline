@@ -10,7 +10,7 @@ import (
 	"context"
 	"time"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // Store is the persistence contract. It is declared by its consumer (app) and

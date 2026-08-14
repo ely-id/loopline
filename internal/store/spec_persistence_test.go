@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 func mustOpenMemory(t *testing.T) *SQLite {

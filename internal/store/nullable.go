@@ -3,7 +3,7 @@ package store
 import (
 	"database/sql"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // nullableDate converts an optional domain.Date to its SQL representation.

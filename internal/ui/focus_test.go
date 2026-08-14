@@ -3,9 +3,9 @@ package ui
 import (
 	"testing"
 
-	"routine-tui/internal/app"
-	"routine-tui/internal/domain"
-	"routine-tui/internal/theme"
+	"loopline/internal/app"
+	"loopline/internal/domain"
+	"loopline/internal/theme"
 )
 
 // rootWithGroups builds a bare Root (no backend, no bubbletea) with a
@@ -37,23 +37,26 @@ func TestBlockCountOverviewIsFixed(t *testing.T) {
 
 func TestBlockCountTodayTracksGroups(t *testing.T) {
 	r := rootWithGroups(3, 0, 2)
-	if got := r.blockCount(ColToday); got != 3 {
-		t.Fatalf("blockCount(today) = %d, want 3", got)
+	if got := r.blockCount(ColToday); got != 4 {
+		t.Fatalf("blockCount(today) = %d, want 4 (Add + 3 groups)", got)
 	}
-	if got := r.itemCount(ColToday, 0); got != 3 {
-		t.Fatalf("itemCount(today,0) = %d, want 3", got)
+	if got := r.itemCount(ColToday, TodayActions); got != 2 {
+		t.Fatalf("itemCount(today,Add) = %d, want 2", got)
 	}
-	if got := r.itemCount(ColToday, 1); got != 0 {
-		t.Fatalf("itemCount(today,1) = %d, want 0", got)
+	if got := r.itemCount(ColToday, 1); got != 3 {
+		t.Fatalf("itemCount(today,1) = %d, want 3", got)
+	}
+	if got := r.itemCount(ColToday, 2); got != 0 {
+		t.Fatalf("itemCount(today,2) = %d, want 0", got)
 	}
 }
 
-func TestClampFocusHandlesEmptyColumn(t *testing.T) {
-	r := rootWithGroups() // no groups at all
+func TestClampFocusHandlesTodayWithNoHabitGroups(t *testing.T) {
+	r := rootWithGroups() // Add block remains
 	r.focus = Focus{Column: ColToday, Block: 5, Item: 5}
 	r.clampFocus()
-	if r.focus.Block != 0 || r.focus.Item != 0 {
-		t.Fatalf("clampFocus on empty column = %+v, want zeroed", r.focus)
+	if r.focus.Block != TodayActions || r.focus.Item != ActionAddRoutine {
+		t.Fatalf("clampFocus with only Add block = %+v, want Add Routine", r.focus)
 	}
 }
 
@@ -61,8 +64,8 @@ func TestClampFocusPullsBackIntoRange(t *testing.T) {
 	r := rootWithGroups(2, 4)
 	r.focus = Focus{Column: ColToday, Block: 9, Item: 9}
 	r.clampFocus()
-	if r.focus.Block != 1 {
-		t.Fatalf("Block = %d, want 1 (last valid block)", r.focus.Block)
+	if r.focus.Block != 2 {
+		t.Fatalf("Block = %d, want 2 (last valid group block)", r.focus.Block)
 	}
 	if r.focus.Item != 3 {
 		t.Fatalf("Item = %d, want 3 (last valid item)", r.focus.Item)
@@ -104,7 +107,7 @@ func TestMoveBlockWrapsWithinColumn(t *testing.T) {
 
 func TestMoveItemClampsWithoutWrap(t *testing.T) {
 	r := rootWithGroups(3)
-	r.focus = Focus{Column: ColToday, Block: 0, Item: 0}
+	r.focus = Focus{Column: ColToday, Block: 1, Item: 0}
 
 	r.moveItem(-1)
 	if r.focus.Item != 0 {

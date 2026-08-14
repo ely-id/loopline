@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 const routineColumns = `id, title, position, created_on, archived_on`

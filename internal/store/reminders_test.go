@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 func TestReminderCRUD(t *testing.T) {

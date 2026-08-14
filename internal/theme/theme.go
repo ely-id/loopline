@@ -1,4 +1,4 @@
-// Package theme holds the visual language of routine-tui: an ANSI-16 lipgloss
+// Package theme holds loopline's visual language: an ANSI-16 lipgloss
 // palette and the named styles every renderer in internal/ui draws from.
 //
 // Only lipgloss.Color("0")..lipgloss.Color("15") are used, so the look
@@ -18,22 +18,18 @@ import (
 // ANSI 16-color palette. Named by their conventional meaning, not their
 // index, so callers never have to remember "6 means cyan".
 var (
-	colBlack        = lipgloss.Color("0")
-	colRed          = lipgloss.Color("1")
-	colGreen        = lipgloss.Color("2")
-	colYellow       = lipgloss.Color("3")
-	colBlue         = lipgloss.Color("4")
-	colMagenta      = lipgloss.Color("5")
-	colCyan         = lipgloss.Color("6")
-	colWhite        = lipgloss.Color("7")
-	colBrightBlack  = lipgloss.Color("8")
-	colBrightGreen  = lipgloss.Color("10")
-	colBrightYellow = lipgloss.Color("11")
+	colBlack       = lipgloss.Color("0")
+	colRed         = lipgloss.Color("1")
+	colGreen       = lipgloss.Color("2")
+	colYellow      = lipgloss.Color("3")
+	colCyan        = lipgloss.Color("6")
+	colWhite       = lipgloss.Color("7")
+	colBrightBlack = lipgloss.Color("8")
+	colBrightGreen = lipgloss.Color("10")
 )
 
 // Glyphs used across block renderers. Centralised here so the visual
-// vocabulary of the app (what a "done" habit or a "busy" heatmap day looks
-// like) stays in one place.
+// vocabulary of the app stays in one place.
 const (
 	GlyphDone       = "x"
 	GlyphPending    = " "
@@ -41,16 +37,43 @@ const (
 	GlyphUnselected = " "
 	GlyphReminder   = "•"
 	GlyphBullet     = "·"
+	GlyphExpanded   = "▾"
+	GlyphCollapsed  = "▸"
 	ProgressFilled  = "█"
 	ProgressEmpty   = "░"
+	YearFilled      = "━"
+	YearEmpty       = "─"
 )
 
-// HeatmapGlyphs are the five density levels of a contribution cell, from
-// "nothing scheduled/done" to "fully complete". Colour alone can't carry five
-// steps on a 16-color palette, so density does the work and color reinforces
-// it. Level 0 must still be a visible glyph (never a bare space): on an ANSI
-// terminal, a Foreground-only style paints nothing over a blank rune.
-var HeatmapGlyphs = [5]rune{'░', '▒', '▓', '█', '█'}
+// Fixed Nerd Font icons reinforce the three-column hierarchy. They only
+// appear in stable headings where their display width is accounted for.
+const (
+	IconLoop       = "󰑓"
+	IconLifetime   = ""
+	IconToday      = "󰄬"
+	IconReminders  = "󰂚"
+	IconCompletion = "󰃭"
+	IconYear       = "󰔛"
+	IconCalendar   = "󰃭"
+)
+
+// CompletionStage is the shared semantic scale used by both historical day
+// cells and Today's progress. None means there was no completable data.
+type CompletionStage int
+
+const (
+	CompletionStageNone CompletionStage = iota
+	CompletionStageZero
+	CompletionStageLow
+	CompletionStageMedium
+	CompletionStageHigh
+	CompletionStageComplete
+	CompletionStageCount
+)
+
+// CompletionGlyphs provide a non-colour signal alongside the semantic ANSI
+// colour scale. Array indexes match CompletionStage.
+var CompletionGlyphs = [CompletionStageCount]rune{'·', '░', '▒', '▓', '▆', '█'}
 
 // Theme is the full set of named styles the UI renders with. Values, not
 // pointers: cheap to build, safe to share, and copy-on-write per render.
@@ -59,7 +82,6 @@ type Theme struct {
 	// compose a style combination theme.New doesn't already provide.
 	FgDim       color.Color
 	Accent      color.Color
-	AccentAlt   color.Color
 	Success     color.Color
 	SuccessAlt  color.Color
 	Warning     color.Color
@@ -87,7 +109,6 @@ type Theme struct {
 	// Selectable rows.
 	Item         lipgloss.Style
 	ItemSelected lipgloss.Style
-	Marker       lipgloss.Style
 
 	// Habit checkboxes.
 	CheckDone    lipgloss.Style
@@ -95,28 +116,21 @@ type Theme struct {
 	HabitDone    lipgloss.Style // completed habit title text
 
 	// Progress bar.
-	ProgressBarFilled lipgloss.Style
-	ProgressBarEmpty  lipgloss.Style
-	ProgressLabel     lipgloss.Style
+	ProgressBarEmpty lipgloss.Style
+	ProgressLabel    lipgloss.Style
+	YearBarFilled    lipgloss.Style
 
 	// Reminders.
 	ReminderOverdue  lipgloss.Style
 	ReminderDueSoon  lipgloss.Style
 	ReminderUpcoming lipgloss.Style
 	ReminderDone     lipgloss.Style
-	ReminderDot      lipgloss.Style
 
-	// Calendar / week grid.
-	CalToday    lipgloss.Style
-	CalInMonth  lipgloss.Style
-	CalOutMonth lipgloss.Style
-	CalFuture   lipgloss.Style
-	CalComplete lipgloss.Style
-	CalPartial  lipgloss.Style
-	CalSelected lipgloss.Style
-
-	// Heatmap cell colors, indexed 0 (none) .. 4 (fully complete).
-	HeatmapLevels [5]lipgloss.Style
+	// Calendar grids.
+	CalInMonth       lipgloss.Style
+	CalOutMonth      lipgloss.Style
+	CalFuture        lipgloss.Style
+	CompletionStyles [CompletionStageCount]lipgloss.Style
 
 	// Modals (huh/v2 forms live inside this frame).
 	ModalBorder lipgloss.Style
@@ -133,7 +147,6 @@ func New() Theme {
 	t := Theme{
 		FgDim:       colBrightBlack,
 		Accent:      colCyan,
-		AccentAlt:   colBlue,
 		Success:     colGreen,
 		SuccessAlt:  colBrightGreen,
 		Warning:     colYellow,
@@ -166,35 +179,27 @@ func New() Theme {
 
 	t.Item = lipgloss.NewStyle()
 	t.ItemSelected = lipgloss.NewStyle().Bold(true).Reverse(true)
-	t.Marker = lipgloss.NewStyle().Bold(true).Foreground(t.Accent)
-
 	t.CheckDone = lipgloss.NewStyle().Bold(true).Foreground(t.Success)
 	t.CheckPending = lipgloss.NewStyle().Foreground(t.FgDim)
 	t.HabitDone = lipgloss.NewStyle().Faint(true)
 
-	t.ProgressBarFilled = lipgloss.NewStyle().Foreground(t.SuccessAlt)
 	t.ProgressBarEmpty = lipgloss.NewStyle().Foreground(t.FgDim)
 	t.ProgressLabel = lipgloss.NewStyle().Bold(true)
+	t.YearBarFilled = lipgloss.NewStyle().Foreground(t.Accent)
 
 	t.ReminderOverdue = lipgloss.NewStyle().Bold(true).Foreground(t.Danger)
 	t.ReminderDueSoon = lipgloss.NewStyle().Foreground(t.Warning)
 	t.ReminderUpcoming = lipgloss.NewStyle()
 	t.ReminderDone = lipgloss.NewStyle().Faint(true)
-	t.ReminderDot = lipgloss.NewStyle().Foreground(t.Warning)
-
-	t.CalToday = lipgloss.NewStyle().Bold(true).Underline(true)
 	t.CalInMonth = lipgloss.NewStyle()
-	t.CalOutMonth = lipgloss.NewStyle().Foreground(t.FgDim)
+	t.CalOutMonth = lipgloss.NewStyle().Faint(true).Foreground(t.FgDim)
 	t.CalFuture = lipgloss.NewStyle().Foreground(t.FgDim)
-	t.CalComplete = lipgloss.NewStyle().Bold(true).Foreground(t.SuccessAlt)
-	t.CalPartial = lipgloss.NewStyle().Foreground(t.Warning)
-	t.CalSelected = lipgloss.NewStyle().Bold(true).Reverse(true)
-
-	t.HeatmapLevels = [5]lipgloss.Style{
+	t.CompletionStyles = [CompletionStageCount]lipgloss.Style{
 		lipgloss.NewStyle().Foreground(t.FgDim),
+		lipgloss.NewStyle().Foreground(t.Danger),
+		lipgloss.NewStyle().Foreground(t.Warning),
+		lipgloss.NewStyle().Foreground(colWhite),
 		lipgloss.NewStyle().Foreground(t.Success),
-		lipgloss.NewStyle().Foreground(t.Success),
-		lipgloss.NewStyle().Foreground(t.SuccessAlt),
 		lipgloss.NewStyle().Bold(true).Foreground(t.SuccessAlt),
 	}
 

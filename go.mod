@@ -1,4 +1,4 @@
-module routine-tui
+module loopline
 
 go 1.26.5
 

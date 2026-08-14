@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // errInjectedToggleFailure is returned by fakeStore.ToggleCompletion when
@@ -280,17 +280,6 @@ func findCalendarDay(cal CalendarMonth, d domain.Date) (CalendarDay, bool) {
 	return CalendarDay{}, false
 }
 
-func findHeatmapCell(hm Heatmap, d domain.Date) (HeatmapCell, bool) {
-	for _, col := range hm.Columns {
-		for _, cell := range col {
-			if cell.Date.Equal(d) {
-				return cell, true
-			}
-		}
-	}
-	return HeatmapCell{}, false
-}
-
 func findGroup(groups []HabitGroup, title string) (HabitGroup, bool) {
 	for _, g := range groups {
 		if g.Title == title {
@@ -408,7 +397,7 @@ func TestServiceSnapshotOmitsEmptyRoutineGroups(t *testing.T) {
 
 // --- ToggleHabit propagation -------------------------------------------------
 
-func TestServiceToggleHabitUpdatesTodaySummaryCalendarAndHeatmap(t *testing.T) {
+func TestServiceToggleHabitUpdatesTodaySummaryAndCalendar(t *testing.T) {
 	ctx := context.Background()
 	store := newFakeStore()
 	today := domain.MustParseDate("2026-08-10")
@@ -432,11 +421,6 @@ func TestServiceToggleHabitUpdatesTodaySummaryCalendarAndHeatmap(t *testing.T) {
 	if !ok || beforeDay.Summary.Completed != 0 {
 		t.Fatalf("before toggle: calendar day = %+v, want Completed 0", beforeDay)
 	}
-	beforeCell, ok := findHeatmapCell(before.Heatmap, today)
-	if !ok || beforeCell.Level != 0 {
-		t.Fatalf("before toggle: heatmap cell = %+v, want Level 0", beforeCell)
-	}
-
 	if err := svc.ToggleHabit(ctx, habitID); err != nil {
 		t.Fatalf("ToggleHabit: %v", err)
 	}
@@ -452,11 +436,6 @@ func TestServiceToggleHabitUpdatesTodaySummaryCalendarAndHeatmap(t *testing.T) {
 	if !ok || afterDay.Summary.Completed != 1 || !afterDay.Summary.IsComplete() {
 		t.Fatalf("after toggle: calendar day = %+v, want Completed=1 and IsComplete", afterDay)
 	}
-	afterCell, ok := findHeatmapCell(after.Heatmap, today)
-	if !ok || afterCell.Level != 4 {
-		t.Fatalf("after toggle: heatmap cell = %+v, want Level 4 (100%% complete)", afterCell)
-	}
-
 	// Toggling again must be idempotent-reversible: back to incomplete.
 	if err := svc.ToggleHabit(ctx, habitID); err != nil {
 		t.Fatalf("ToggleHabit (second time): %v", err)
@@ -605,93 +584,63 @@ func TestServiceDailySummariesStayConsistentWithCompletions(t *testing.T) {
 	assertConsistent("after archiving A")
 }
 
-// --- Heatmap padding and range selection -------------------------------------
+// --- Monthly completion calendar semantics ----------------------------------
 
-func TestServiceHeatmapPaddingCellsHaveZeroDate(t *testing.T) {
-	ctx := context.Background()
-	store := newFakeStore()
-	today := domain.MustParseDate("2026-08-10") // a Monday
-	clock := domain.NewFixedClock(today)
-	svc := New(store, clock)
-
-	if err := svc.AddHabit(ctx, NewHabit{Title: "Anything"}); err != nil {
-		t.Fatalf("AddHabit: %v", err)
-	}
-
-	snap, err := svc.Snapshot(ctx, SnapshotRequest{Range: RangeMonth})
-	if err != nil {
-		t.Fatalf("Snapshot: %v", err)
-	}
-	hm := snap.Heatmap
-	if hm.Start.IsZero() || hm.End.IsZero() {
-		t.Fatalf("Heatmap.Start/End must not be zero: %+v", hm)
-	}
-
-	wantDays := hm.End.DaysSince(hm.Start) + 1
-	gotDays := 0
-	for _, col := range hm.Columns {
-		if len(col) != 7 {
-			t.Fatalf("heatmap column has %d cells, want 7 (every column is a full week)", len(col))
-		}
-		for _, cell := range col {
-			if cell.Date.IsZero() {
-				if cell.Level != 0 {
-					t.Fatalf("padding cell (zero Date) has Level %d, want 0: %+v", cell.Level, cell)
-				}
-				continue
-			}
-			gotDays++
-			if cell.Date.Before(hm.Start) || cell.Date.After(hm.End) {
-				t.Fatalf("non-zero cell Date %s falls outside [%s, %s]", cell.Date, hm.Start, hm.End)
-			}
-		}
-	}
-	if gotDays != wantDays {
-		t.Fatalf("heatmap has %d dated cells, want %d (End.DaysSince(Start)+1)", gotDays, wantDays)
-	}
-
-	// The first column must be padded up to the weekday offset of Start,
-	// computed independently via Date.StartOfWeek/Weekday rather than a
-	// hardcoded calendar assumption.
-	offset := int(hm.Start.Weekday()+6) % 7 // Monday == 0, matches Date.StartOfWeek
-	firstCol := hm.Columns[0]
-	for i := 0; i < offset; i++ {
-		if !firstCol[i].Date.IsZero() {
-			t.Fatalf("firstCol[%d] = %+v, want zero-date padding before Start %s", i, firstCol[i], hm.Start)
-		}
-	}
-	if firstCol[offset].Date != hm.Start {
-		t.Fatalf("firstCol[%d] = %s, want Start %s", offset, firstCol[offset].Date, hm.Start)
-	}
-}
-
-func TestServiceHeatmapRangeAllStartsAtFirstActivityDate(t *testing.T) {
+func TestServiceCalendarDerivesHistoryFromHabitsAndCompletions(t *testing.T) {
 	ctx := context.Background()
 	store := newFakeStore()
 	today := domain.MustParseDate("2026-08-10")
-	firstActivity := domain.MustParseDate("2026-05-15")
-
-	// Insert a habit created well before "today" directly through the store,
-	// bypassing Service.AddHabit (which always stamps CreatedOn = today).
-	if _, err := store.CreateHabit(ctx, domain.Habit{
-		Title:     "Old habit",
-		Schedule:  domain.DailySchedule(),
-		CreatedOn: firstActivity,
-	}); err != nil {
+	created := domain.MustParseDate("2026-07-01")
+	archived := domain.MustParseDate("2026-07-20")
+	firstID, err := store.CreateHabit(ctx, domain.Habit{
+		Title:      "July daily",
+		Schedule:   domain.DailySchedule(),
+		CreatedOn:  created,
+		ArchivedOn: &archived,
+	})
+	if err != nil {
 		t.Fatalf("CreateHabit: %v", err)
 	}
+	secondID, err := store.CreateHabit(ctx, domain.Habit{
+		Title:     "Mondays",
+		Schedule:  domain.Schedule{Kind: domain.ScheduleWeekdays, Weekdays: domain.WeekdaysOf(time.Monday)},
+		CreatedOn: created,
+	})
+	if err != nil {
+		t.Fatalf("CreateHabit (weekday): %v", err)
+	}
+
+	fullDay := domain.MustParseDate("2026-07-06") // Monday: both scheduled
+	completedAt := time.Date(2026, time.July, 6, 12, 0, 0, 0, time.UTC)
+	if err := store.SetCompletion(ctx, firstID, fullDay, true, completedAt); err != nil {
+		t.Fatalf("SetCompletion (daily): %v", err)
+	}
+	if err := store.SetCompletion(ctx, secondID, fullDay, true, completedAt); err != nil {
+		t.Fatalf("SetCompletion (Monday): %v", err)
+	}
+	// Deliberately wrong cache content: Snapshot must ignore daily_summaries.
+	store.summaries[fullDay] = domain.DailySummary{Date: fullDay, Scheduled: 99, Completed: 0}
 
 	svc := New(store, domain.NewFixedClock(today))
-	snap, err := svc.Snapshot(ctx, SnapshotRequest{Range: RangeAll})
+	snap, err := svc.Snapshot(ctx, SnapshotRequest{Month: fullDay})
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
 
-	if snap.Heatmap.Start != firstActivity {
-		t.Fatalf("Heatmap.Start = %s, want %s (FirstActivityDate)", snap.Heatmap.Start, firstActivity)
+	day, ok := findCalendarDay(snap.Calendar, fullDay)
+	if !ok {
+		t.Fatalf("calendar is missing %s", fullDay)
 	}
-	if snap.Heatmap.End != today {
-		t.Fatalf("Heatmap.End = %s, want %s (today; the heatmap never shows the future)", snap.Heatmap.End, today)
+	if day.Summary.Scheduled != 2 || day.Summary.Completed != 2 || day.Summary.Percent() != 100 {
+		t.Fatalf("calendar summary = %+v, want authoritative 2/2 from habits+completions", day.Summary)
+	}
+
+	archiveDay, ok := findCalendarDay(snap.Calendar, archived)
+	if !ok {
+		t.Fatalf("calendar is missing archive day %s", archived)
+	}
+	if archiveDay.Summary.Scheduled != 1 {
+		t.Fatalf("archive-day scheduled = %d, want 1: daily habit is inactive on archived_on and Monday habit remains", archiveDay.Summary.Scheduled)
 	}
 }
 
@@ -786,6 +735,149 @@ func TestServiceDeleteHabitArchivesRatherThanDestroys(t *testing.T) {
 	}
 	if beforeDay.Summary.Scheduled != 1 {
 		t.Fatalf("day before archive: Scheduled = %d, want 1 (history must still show it scheduled)", beforeDay.Summary.Scheduled)
+	}
+}
+
+func TestServiceEditHabitPreservesIdentityAndCompletionHistory(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStore()
+	today := domain.MustParseDate("2026-08-10")
+	svc := New(store, domain.NewFixedClock(today))
+
+	if err := svc.AddRoutine(ctx, NewRoutine{Title: "Morning"}); err != nil {
+		t.Fatalf("AddRoutine Morning: %v", err)
+	}
+	if err := svc.AddRoutine(ctx, NewRoutine{Title: "Evening"}); err != nil {
+		t.Fatalf("AddRoutine Evening: %v", err)
+	}
+	routines, _ := store.Routines(ctx)
+	morningID, eveningID := routines[0].ID, routines[1].ID
+	if err := svc.AddHabit(ctx, NewHabit{
+		Title: "Read", RoutineID: &morningID, Schedule: domain.DailySchedule(), Notes: "old note",
+	}); err != nil {
+		t.Fatalf("AddHabit: %v", err)
+	}
+	habits, _ := store.Habits(ctx)
+	original := habits[0]
+	if err := svc.ToggleHabit(ctx, original.ID); err != nil {
+		t.Fatalf("ToggleHabit: %v", err)
+	}
+
+	if err := svc.EditHabit(ctx, original.ID, NewHabit{
+		Title: "Read deeply", RoutineID: &eveningID, Schedule: domain.DailySchedule(), Notes: "new note",
+	}); err != nil {
+		t.Fatalf("EditHabit: %v", err)
+	}
+	stored := store.habits[original.ID]
+	if stored.ID != original.ID || stored.CreatedOn != original.CreatedOn {
+		t.Fatalf("identity changed during edit: got %+v, original %+v", stored, original)
+	}
+	if stored.Title != "Read deeply" || stored.Notes != "new note" || stored.RoutineID == nil || *stored.RoutineID != eveningID {
+		t.Fatalf("editable fields were not updated: %+v", stored)
+	}
+	if _, ok := store.completions[original.ID][today]; !ok {
+		t.Fatal("editing a habit removed its completion history")
+	}
+}
+
+func TestServiceEditRoutinePreservesIdentityPositionAndMembership(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStore()
+	today := domain.MustParseDate("2026-08-10")
+	svc := New(store, domain.NewFixedClock(today))
+
+	if err := svc.AddRoutine(ctx, NewRoutine{Title: "Morning"}); err != nil {
+		t.Fatalf("AddRoutine: %v", err)
+	}
+	routines, _ := store.Routines(ctx)
+	original := routines[0]
+	if err := svc.AddHabit(ctx, NewHabit{Title: "Stretch", RoutineID: &original.ID}); err != nil {
+		t.Fatalf("AddHabit: %v", err)
+	}
+
+	if err := svc.EditRoutine(ctx, original.ID, NewRoutine{Title: "First light"}); err != nil {
+		t.Fatalf("EditRoutine: %v", err)
+	}
+	stored := store.routines[original.ID]
+	if stored.ID != original.ID || stored.Position != original.Position || stored.CreatedOn != original.CreatedOn || stored.Title != "First light" {
+		t.Fatalf("routine edit changed stable fields: got %+v, original %+v", stored, original)
+	}
+	habits, _ := store.Habits(ctx)
+	if len(habits) != 1 || habits[0].RoutineID == nil || *habits[0].RoutineID != original.ID {
+		t.Fatalf("routine edit changed habit membership: %+v", habits)
+	}
+}
+
+func TestServiceEditReminderPreservesIdentityAndCompletedStatus(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStore()
+	today := domain.MustParseDate("2026-08-10")
+	svc := New(store, domain.NewFixedClock(today))
+	if err := svc.AddReminder(ctx, NewReminder{Title: "Exam", Date: today, Notes: "room 1"}); err != nil {
+		t.Fatalf("AddReminder: %v", err)
+	}
+	reminders, _ := store.Reminders(ctx)
+	original := reminders[0]
+	if err := svc.ToggleReminder(ctx, original.ID); err != nil {
+		t.Fatalf("ToggleReminder: %v", err)
+	}
+
+	tomorrow := today.AddDays(1)
+	if err := svc.EditReminder(ctx, original.ID, NewReminder{Title: "Algorithms exam", Date: tomorrow, Notes: "room 2"}); err != nil {
+		t.Fatalf("EditReminder: %v", err)
+	}
+	stored := store.reminders[original.ID]
+	if stored.ID != original.ID || !stored.Completed {
+		t.Fatalf("reminder identity/status changed during edit: %+v", stored)
+	}
+	if stored.Title != "Algorithms exam" || stored.Date != tomorrow || stored.Notes != "room 2" {
+		t.Fatalf("reminder editable fields were not updated: %+v", stored)
+	}
+}
+
+func TestServiceDeleteRoutineDetachesRatherThanDeletesHabits(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStore()
+	today := domain.MustParseDate("2026-08-10")
+	svc := New(store, domain.NewFixedClock(today))
+	if err := svc.AddRoutine(ctx, NewRoutine{Title: "Morning"}); err != nil {
+		t.Fatalf("AddRoutine: %v", err)
+	}
+	routines, _ := store.Routines(ctx)
+	routineID := routines[0].ID
+	if err := svc.AddHabit(ctx, NewHabit{Title: "Stretch", RoutineID: &routineID}); err != nil {
+		t.Fatalf("AddHabit: %v", err)
+	}
+
+	if err := svc.DeleteRoutine(ctx, routineID); err != nil {
+		t.Fatalf("DeleteRoutine: %v", err)
+	}
+	if len(store.routines) != 0 {
+		t.Fatalf("routine still exists after deletion: %+v", store.routines)
+	}
+	habits, _ := store.Habits(ctx)
+	if len(habits) != 1 || habits[0].RoutineID != nil {
+		t.Fatalf("routine habit was deleted or not detached: %+v", habits)
+	}
+}
+
+func TestServiceDeleteReminderRemovesOnlySelectedReminder(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStore()
+	today := domain.MustParseDate("2026-08-10")
+	svc := New(store, domain.NewFixedClock(today))
+	if err := svc.AddReminder(ctx, NewReminder{Title: "One", Date: today}); err != nil {
+		t.Fatalf("AddReminder One: %v", err)
+	}
+	if err := svc.AddReminder(ctx, NewReminder{Title: "Two", Date: today}); err != nil {
+		t.Fatalf("AddReminder Two: %v", err)
+	}
+	reminders, _ := store.Reminders(ctx)
+	if err := svc.DeleteReminder(ctx, reminders[0].ID); err != nil {
+		t.Fatalf("DeleteReminder: %v", err)
+	}
+	if len(store.reminders) != 1 || store.reminders[reminders[1].ID].Title != "Two" {
+		t.Fatalf("delete reminder affected the wrong rows: %+v", store.reminders)
 	}
 }
 

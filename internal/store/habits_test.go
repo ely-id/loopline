@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 func TestCreateAndFetchHabit(t *testing.T) {

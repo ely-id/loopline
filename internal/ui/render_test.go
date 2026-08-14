@@ -6,8 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 
-	"routine-tui/internal/app"
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 // bigSnapshotBackend seeds enough habits, routines and reminders to stress
@@ -75,23 +74,6 @@ func TestViewDoesNotPanicAcrossFocusPositions(t *testing.T) {
 				m.focus.Item = item
 				_ = m.View().Content // must not panic
 			}
-		}
-	}
-}
-
-func TestHeatmapRangeCyclesThroughAllRanges(t *testing.T) {
-	today := domain.MustParseDate("2026-08-10")
-	m := newReadyRoot(t, bigSnapshotBackend(today))
-	m.focus = Focus{Column: ColOverview, Block: OverviewHeatmap}
-
-	seen := map[app.StatsRange]bool{m.statsRange: true}
-	for i := 0; i < len(app.StatsRanges); i++ {
-		m = pressKey(t, m, "]")
-		seen[m.statsRange] = true
-	}
-	for _, r := range app.StatsRanges {
-		if !seen[r] {
-			t.Errorf("range %q was never reached while cycling with ]", r)
 		}
 	}
 }

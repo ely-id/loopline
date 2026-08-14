@@ -64,3 +64,19 @@ func TestWindowAroundNonPositiveHeightReturnsNil(t *testing.T) {
 		t.Fatalf("height 0 = %v, want nil", got)
 	}
 }
+
+func TestWindowAroundRangeKeepsExpandedItemVisible(t *testing.T) {
+	lines := seqLines(20)
+	got := windowAroundRange(lines, 8, 9, 14)
+	if got[0] > lines[9] || got[len(got)-1] < lines[13] {
+		t.Fatalf("window %v does not contain full selected span %v", got, lines[9:14])
+	}
+}
+
+func TestWindowAroundRangeAnchorsOversizedExpansionAtSelection(t *testing.T) {
+	lines := seqLines(20)
+	got := windowAroundRange(lines, 5, 9, 18)
+	if got[0] != lines[9] {
+		t.Fatalf("oversized expansion starts at %q, want selected row %q", got[0], lines[9])
+	}
+}

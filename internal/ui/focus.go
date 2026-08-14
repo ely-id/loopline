@@ -18,34 +18,37 @@ const (
 
 // Blocks within the overview column.
 const (
-	OverviewActions = iota
-	OverviewLifetime
-	OverviewWeek
-	OverviewHeatmap
+	OverviewLifetime = iota
+	OverviewCompletion
 	numOverviewBlocks
 )
+
+// Blocks within the today column. Habit groups follow TodayActions in their
+// snapshot order, so group index = block - 1.
+const TodayActions = 0
 
 // Blocks within the reminders column.
 const (
 	RemindersActions = iota
+	RemindersCalendar
 	RemindersList
 	numReminderBlocks
 )
 
-// Items within the overview actions block.
+// Items within Today's Add block.
 const (
 	ActionAddHabit = iota
 	ActionAddRoutine
 )
 
 // blockCount returns how many blocks the given column currently has. Today's
-// block count is dynamic: one per non-empty habit group.
+// block count is its fixed Add block plus one per non-empty habit group.
 func (m *Root) blockCount(col int) int {
 	switch col {
 	case ColOverview:
 		return numOverviewBlocks
 	case ColToday:
-		return len(m.snap.Today.Groups)
+		return 1 + len(m.snap.Today.Groups)
 	case ColReminders:
 		return numReminderBlocks
 	default:
@@ -57,17 +60,24 @@ func (m *Root) blockCount(col int) int {
 func (m *Root) itemCount(col, block int) int {
 	switch col {
 	case ColOverview:
-		if block == OverviewActions {
-			return 2
-		}
 		return 1
 	case ColToday:
-		if block < 0 || block >= len(m.snap.Today.Groups) {
+		if block == TodayActions {
+			return 2
+		}
+		group := block - 1
+		if group < 0 || group >= len(m.snap.Today.Groups) {
 			return 0
 		}
-		return len(m.snap.Today.Groups[block].Items)
+		if m.routineCollapsed(m.snap.Today.Groups[group]) {
+			return 1 // the routine header remains selectable while children are hidden
+		}
+		return len(m.snap.Today.Groups[group].Items)
 	case ColReminders:
 		if block == RemindersActions {
+			return 1
+		}
+		if block == RemindersCalendar {
 			return 1
 		}
 		return len(m.snap.Reminders)

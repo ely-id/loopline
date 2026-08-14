@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
 )
 
 const reminderColumns = `id, title, date, notes, completed`

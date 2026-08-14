@@ -5,6 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
+
+	"loopline/internal/theme"
 )
 
 // View implements tea.Model.
@@ -30,24 +32,38 @@ func (m *Root) View() tea.View {
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, body, footer))
 }
 
-// columnWidths splits the terminal width into three outer column widths
-// (border included), separated by single-space gaps, that exactly sum back
-// to total.
+// columnWidths gives the execution-heavy Today column modestly more room.
+// The 96-column minimum starts at 31/34/29 outer cells; additional width is
+// distributed 1:2:1 while all three widths plus the two gaps still sum to
+// the terminal width exactly.
 func columnWidths(total int) [3]int {
 	const gap = 2 // one space between col0/col1 and col1/col2
 	avail := total - gap
-	base := avail / 3
-	rem := avail % 3
-	w := [3]int{base, base, base}
-	for i := 0; i < rem; i++ {
-		w[2-i]++
+	if avail < 94 {
+		base := max(avail/3, 1)
+		w := [3]int{base, base, base}
+		for i := base * 3; i < avail; i++ {
+			w[i-base*3]++
+		}
+		return w
+	}
+
+	w := [3]int{31, 34, 29}
+	extra := avail - 94
+	q, r := extra/4, extra%4
+	w[0] += q
+	w[1] += 2 * q
+	w[2] += q
+	order := [...]int{1, 0, 2}
+	for i := 0; i < r; i++ {
+		w[order[i]]++
 	}
 	return w
 }
 
 func (m *Root) renderColumns() string {
 	outer := columnWidths(m.width)
-	bodyHeight := m.height - 2 // footer: hints line + status line
+	bodyHeight := m.height - 1 // one footer line: hints or status
 	innerHeight := max(bodyHeight-2, 1)
 
 	text := [3]int{}
@@ -92,18 +108,30 @@ func (m *Root) styledColumn(col, outerWidth, outerHeight int, content string) st
 }
 
 func (m *Root) renderFooter() string {
-	hints := "←→/h l column   tab block   ↑↓/j k item   enter act   </> month·range   ?  help   q  quit"
-	line1 := m.theme.Footer.Render(hints)
-	line2 := ""
 	if m.status != "" {
-		line2 = m.theme.ReminderOverdue.Render(m.status)
+		return m.theme.ReminderOverdue.MaxWidth(m.width).Render(m.status)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, line1, line2)
+	hints := theme.IconLoop + "  ←→ col  tab block  ↑↓ item  enter act"
+	editable := m.editableSelection().valid()
+	if editable {
+		hints += "  e edit"
+	}
+	if expansion := m.expansionHint(); expansion != "" {
+		hints += "  t " + expansion
+	}
+	if editable {
+		hints += "  Delete delete"
+	}
+	if m.onCalendar() {
+		hints += "  </> month"
+	}
+	hints += "  ? help  q quit"
+	return m.theme.Footer.MaxWidth(m.width).Render(hints)
 }
 
 func (m *Root) renderMinSize() string {
 	msg := fmt.Sprintf(
-		"Terminal too small.\nNeed at least %d x %d, have %d x %d.",
+		"loopline needs a little more room.\nNeed at least %d x %d, have %d x %d.",
 		MinWidth, MinHeight, m.width, m.height,
 	)
 	return lipgloss.Place(
@@ -117,7 +145,7 @@ func (m *Root) renderLoading() string {
 	return lipgloss.Place(
 		max(m.width, 1), max(m.height, 1),
 		lipgloss.Center, lipgloss.Center,
-		m.theme.Dim.Render("Loading…"),
+		m.theme.Dim.Render("loopline · loading…"),
 	)
 }
 

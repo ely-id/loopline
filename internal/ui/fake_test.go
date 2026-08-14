@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"routine-tui/internal/app"
-	"routine-tui/internal/domain"
+	"loopline/internal/app"
+	"loopline/internal/domain"
 )
 
 // fakeBackend is an in-memory Backend for tests. It's just enough state to
@@ -84,11 +84,6 @@ func (f *fakeBackend) Snapshot(_ context.Context, req app.SnapshotRequest) (app.
 	if month.IsZero() {
 		month = f.today
 	}
-	statsRange := req.Range
-	if statsRange == "" {
-		statsRange = app.RangeMonth
-	}
-
 	index := map[domain.Date]map[int64]bool{}
 	for hid, byDate := range f.done {
 		for d, ok := range byDate {
@@ -103,12 +98,8 @@ func (f *fakeBackend) Snapshot(_ context.Context, req app.SnapshotRequest) (app.
 	}
 
 	reminderDays := map[domain.Date]bool{}
-	openReminders := 0
 	for _, r := range f.reminders {
 		reminderDays[r.Date] = true
-		if !r.Completed {
-			openReminders++
-		}
 	}
 
 	today := f.today
@@ -174,34 +165,33 @@ func (f *fakeBackend) Snapshot(_ context.Context, req app.SnapshotRequest) (app.
 		weeks = append(weeks, week)
 	}
 
-	weekStart := today.StartOfWeek()
-	isoYear, isoWeek := today.ISOWeek()
-	weekDays := make([]app.CalendarDay, 7)
-	for i := range weekDays {
-		d := weekStart.AddDays(i)
-		weekDays[i] = app.CalendarDay{
-			Date:        d,
-			InMonth:     true,
-			IsToday:     d.Equal(today),
-			IsFuture:    d.After(today),
-			Summary:     domain.SummarizeDay(f.habits, index[d], d),
-			HasReminder: reminderDays[d],
+	first := today
+	for _, h := range f.habits {
+		if h.CreatedOn.Before(first) {
+			first = h.CreatedOn
 		}
 	}
-
-	heatStart := today.AddDays(-6)
-	var cols [][]app.HeatmapCell
-	for ws := heatStart.StartOfWeek(); !ws.After(today); ws = ws.AddDays(7) {
-		col := make([]app.HeatmapCell, 7)
-		for i := range col {
-			d := ws.AddDays(i)
-			if d.Before(heatStart) || d.After(today) {
-				continue
+	for _, byDate := range f.done {
+		for d, done := range byDate {
+			if done && d.Before(first) {
+				first = d
 			}
-			sum := domain.SummarizeDay(f.habits, index[d], d)
-			col[i] = app.HeatmapCell{Date: d, Summary: sum}
 		}
-		cols = append(cols, col)
+	}
+	summaries := make([]domain.DailySummary, 0, today.DaysSince(first)+1)
+	totalScheduled, totalCompleted, tracked := 0, 0, 0
+	for d := first; !d.After(today); d = d.AddDays(1) {
+		sum := domain.SummarizeDay(f.habits, index[d], d)
+		summaries = append(summaries, sum)
+		totalScheduled += sum.Scheduled
+		totalCompleted += sum.Completed
+		if sum.Scheduled > 0 {
+			tracked++
+		}
+	}
+	lifetimePercent := 0
+	if totalScheduled > 0 {
+		lifetimePercent = totalCompleted * 100 / totalScheduled
 	}
 
 	snap := app.Snapshot{
@@ -211,14 +201,13 @@ func (f *fakeBackend) Snapshot(_ context.Context, req app.SnapshotRequest) (app.
 			Summary: domain.SummarizeDay(f.habits, doneToday, today),
 		},
 		Overview: app.Overview{
-			Today:          today,
-			ActiveHabits:   len(f.habits),
-			ActiveRoutines: len(activeRoutines),
-			OpenReminders:  openReminders,
+			CurrentStreak:    domain.CurrentStreak(summaries, today),
+			BestStreak:       domain.BestStreak(summaries),
+			TotalCompletions: totalCompleted,
+			DaysTracked:      tracked,
+			LifetimePercent:  lifetimePercent,
 		},
 		Calendar:  app.CalendarMonth{Year: month.Year, Month: month.Month, Weeks: weeks},
-		Week:      app.WeekView{ISOYear: isoYear, ISOWeek: isoWeek, Start: weekStart, Days: weekDays},
-		Heatmap:   app.Heatmap{Range: statsRange, Start: heatStart, End: today, Columns: cols},
 		Reminders: append([]domain.Reminder(nil), f.reminders...),
 		Routines:  activeRoutines,
 	}
@@ -267,6 +256,46 @@ func (f *fakeBackend) AddReminder(_ context.Context, in app.NewReminder) error {
 	return nil
 }
 
+func (f *fakeBackend) EditHabit(_ context.Context, id int64, in app.NewHabit) error {
+	f.calls = append(f.calls, "EditHabit")
+	for i, h := range f.habits {
+		if h.ID != id {
+			continue
+		}
+		f.habits[i].Title = in.Title
+		f.habits[i].RoutineID = in.RoutineID
+		f.habits[i].Schedule = in.Schedule
+		f.habits[i].Notes = in.Notes
+		return nil
+	}
+	return errors.New("not found")
+}
+
+func (f *fakeBackend) EditRoutine(_ context.Context, id int64, in app.NewRoutine) error {
+	f.calls = append(f.calls, "EditRoutine")
+	for i, r := range f.routines {
+		if r.ID == id {
+			f.routines[i].Title = in.Title
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
+func (f *fakeBackend) EditReminder(_ context.Context, id int64, in app.NewReminder) error {
+	f.calls = append(f.calls, "EditReminder")
+	for i, r := range f.reminders {
+		if r.ID != id {
+			continue
+		}
+		f.reminders[i].Title = in.Title
+		f.reminders[i].Date = in.Date
+		f.reminders[i].Notes = in.Notes
+		return nil
+	}
+	return errors.New("not found")
+}
+
 func (f *fakeBackend) ToggleReminder(_ context.Context, id int64) error {
 	f.calls = append(f.calls, "ToggleReminder")
 	for i, r := range f.reminders {
@@ -294,6 +323,11 @@ func (f *fakeBackend) DeleteRoutine(_ context.Context, id int64) error {
 	for i, r := range f.routines {
 		if r.ID == id {
 			f.routines = append(f.routines[:i], f.routines[i+1:]...)
+			for hi := range f.habits {
+				if f.habits[hi].RoutineID != nil && *f.habits[hi].RoutineID == id {
+					f.habits[hi].RoutineID = nil
+				}
+			}
 			return nil
 		}
 	}

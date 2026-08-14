@@ -3,12 +3,12 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"routine-tui/internal/app"
-	"routine-tui/internal/domain"
-	"routine-tui/internal/theme"
+	"loopline/internal/app"
+	"loopline/internal/domain"
+	"loopline/internal/theme"
 )
 
-// Root is the Bubble Tea v2 root model for routine-tui. It owns every piece
+// Root is loopline's Bubble Tea v2 root model. It owns every piece
 // of interaction state (focus, modal, help, transient status) and renders
 // the whole three-column layout from the last Snapshot it was given.
 type Root struct {
@@ -25,8 +25,13 @@ type Root struct {
 	modal *modalState
 	help  bool
 
-	calMonth   domain.Date // zero means "the month containing today"
-	statsRange app.StatsRange
+	calMonth domain.Date // zero means "the month containing today"
+
+	// Expansion is deliberately ephemeral presentation state. Routines are
+	// expanded by default; the map only records collapsed routine IDs. At
+	// most one reminder is expanded to keep its narrow column predictable.
+	collapsedRoutines map[int64]bool
+	expandedReminder  int64
 
 	snapReqID int64 // monotonic; bumped by every fetchSnapshotCmd
 	pending   bool  // a mutating Backend call is in flight
@@ -38,10 +43,10 @@ type Root struct {
 // first Snapshot fetch as a tea.Cmd.
 func New(backend Backend) *Root {
 	return &Root{
-		backend:    backend,
-		theme:      theme.New(),
-		today:      backend.Today(), // bootstrap default until the first Snapshot lands
-		statsRange: app.RangeMonth,
+		backend:           backend,
+		theme:             theme.New(),
+		today:             backend.Today(), // bootstrap default until the first Snapshot lands
+		collapsedRoutines: make(map[int64]bool),
 	}
 }
 
@@ -110,5 +115,36 @@ func (m *Root) applySnapshot(snap app.Snapshot) {
 	m.today = snap.Today.Date
 	m.ready = true
 	m.status = ""
+	m.reconcileExpansion()
 	m.clampFocus()
+}
+
+func (m *Root) reconcileExpansion() {
+	if m.expandedReminder != 0 {
+		found := false
+		for _, reminder := range m.snap.Reminders {
+			if reminder.ID == m.expandedReminder {
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.expandedReminder = 0
+		}
+	}
+
+	if len(m.collapsedRoutines) == 0 {
+		return
+	}
+	active := make(map[int64]bool, len(m.snap.Today.Groups))
+	for _, group := range m.snap.Today.Groups {
+		if group.RoutineID != nil {
+			active[*group.RoutineID] = true
+		}
+	}
+	for id := range m.collapsedRoutines {
+		if !active[id] {
+			delete(m.collapsedRoutines, id)
+		}
+	}
 }

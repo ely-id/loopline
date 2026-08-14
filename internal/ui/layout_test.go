@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 
-	"routine-tui/internal/domain"
+	"loopline/internal/domain"
+	"loopline/internal/theme"
 )
 
 // sixWeekMonthToday is a date whose month renders as a full six calendar
@@ -16,39 +18,72 @@ import (
 // on a Monday, so its grid spans Jul 27 - Sep 6 (6 rows).
 var sixWeekMonthToday = domain.MustParseDate("2026-08-10")
 
-// TestOverviewContentFitsAtMinHeight pins down the height budget MinHeight's
-// doc comment claims: the overview column has no viewport of its own, so if
-// its worst-case content (a six-week month) ever exceeds what MinHeight
-// affords, styledColumn's MaxHeight silently crops the bottom of the column
-// (typically the heatmap) instead of the app falling back to the
-// minimum-size message SPEC requires. If this test starts failing, raise
-// MinHeight to match — don't shrink the budget check.
+func TestFixedNerdFontIconsHaveStableSingleCellWidth(t *testing.T) {
+	icons := []string{
+		theme.IconLoop, theme.IconToday, theme.IconReminders,
+		theme.IconLifetime, theme.IconCompletion, theme.IconYear, theme.IconCalendar,
+	}
+	for _, icon := range icons {
+		if width := lipgloss.Width(icon); width != 1 {
+			t.Fatalf("fixed heading icon %q has measured width %d, want 1", icon, width)
+		}
+	}
+}
+
+func TestLifetimeUsesExactLeafHeading(t *testing.T) {
+	if theme.IconLifetime != "" {
+		t.Fatalf("IconLifetime = %q, want exact U+F06C leaf glyph", theme.IconLifetime)
+	}
+	root := newReadyRoot(t, newRichBackend(sixWeekMonthToday))
+	first := strings.Split(stripANSI(root.renderLifetime(27)), "\n")[0]
+	if first != " Lifetime" {
+		t.Fatalf("lifetime heading = %q, want %q", first, " Lifetime")
+	}
+	if prefixWidth := lipgloss.Width(strings.TrimSuffix(first, "Lifetime")); prefixWidth != 2 {
+		t.Fatalf("lifetime icon + spacing width = %d, want the fixed-heading two-cell prefix", prefixWidth)
+	}
+}
+
+func TestColumnWidthsPrioritizeTodayAndSumExactly(t *testing.T) {
+	for _, width := range []int{MinWidth, 120, 160} {
+		cols := columnWidths(width)
+		if got := cols[0] + cols[1] + cols[2] + 2; got != width {
+			t.Fatalf("columnWidths(%d) sums to %d including gaps", width, got)
+		}
+		if cols[1] <= cols[0] || cols[1] <= cols[2] {
+			t.Fatalf("columnWidths(%d) = %v, want Today wider than both supporting columns", width, cols)
+		}
+	}
+	if got := columnWidths(MinWidth); got != [3]int{31, 34, 29} {
+		t.Fatalf("minimum column widths = %v, want [31 34 29]", got)
+	}
+}
+
+// TestOverviewContentFitsAtMinHeight pins the redesigned six-week completion
+// calendar against the real 30-row content budget at 96x33.
 func TestOverviewContentFitsAtMinHeight(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(sixWeekMonthToday))
 	if weeks := len(root.snap.Calendar.Weeks); weeks != 6 {
 		t.Fatalf("fixture drifted: calendar has %d weeks, want 6 (the worst case this test exists to cover)", weeks)
 	}
 
-	lines := strings.Split(root.renderOverview(40), "\n")
+	lines := strings.Split(root.renderOverview(27), "\n")
 
-	budget := MinHeight - 4 // bodyHeight (-2 footer) then column border (-2)
+	budget := MinHeight - 3 // one footer row + two column-border rows
 	if len(lines) > budget {
 		t.Fatalf("renderOverview produced %d lines, want <= %d (MinHeight=%d budget); raise MinHeight to match", len(lines), budget, MinHeight)
 	}
 }
 
-// TestViewAtMinHeightRendersHeatmapUnclipped is the integration-level
-// counterpart of TestOverviewContentFitsAtMinHeight: at exactly MinWidth x
-// MinHeight, the heatmap block (the last, and tallest, block in the overview
-// column) must still be visible in the rendered frame rather than clipped
-// off the bottom.
-func TestViewAtMinHeightRendersHeatmapUnclipped(t *testing.T) {
+// TestViewAtMinHeightRendersBothCalendarsUnclipped is the end-to-end 96x33
+// guard for the two new month views.
+func TestViewAtMinHeightRendersBothCalendarsUnclipped(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(sixWeekMonthToday))
 	root = send(t, root, tea.WindowSizeMsg{Width: MinWidth, Height: MinHeight})
 
 	content := root.View().Content
-	if !strings.Contains(content, "Heatmap") {
-		t.Fatalf("View at MinWidth x MinHeight is missing the Heatmap block title:\n%s", content)
+	if !strings.Contains(content, "Completion") || !strings.Contains(content, "Calendar") {
+		t.Fatalf("View at MinWidth x MinHeight is missing a calendar block title:\n%s", content)
 	}
 }
 
@@ -68,6 +103,7 @@ func TestTodayLongListKeepsFocusedItemVisibleAndProgressPinned(t *testing.T) {
 	root := newReadyRoot(t, backend)
 	root = send(t, root, tea.WindowSizeMsg{Width: MinWidth, Height: MinHeight})
 	root = pressKey(t, root, "right") // overview -> today
+	root = pressKey(t, root, "tab")   // Add actions -> ungrouped habits
 
 	for i := 0; i < len(habits)-1; i++ {
 		root = pressKey(t, root, "down")
