@@ -40,7 +40,7 @@ func TestEditHabitUsesSelectedExpandedRoutineChildAndPreservesIdentity(t *testin
 	today := domain.MustParseDate("2026-08-10")
 	backend := newRichBackend(today)
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColToday, Block: 2, Item: 1}
+	setPanelFocus(root, Focus{Column: ColToday, Block: 2, Item: 2})
 	original := root.snap.Today.Groups[1].Items[1].Habit
 
 	root = pressKey(t, root, "e")
@@ -77,7 +77,7 @@ func TestEditRoutineUsesCollapsedHeaderAndPreservesChildren(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newRichBackend(today)
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColToday, Block: 2, Item: 2}
+	setPanelFocus(root, Focus{Column: ColToday, Block: 2, Item: 2})
 	routineID := *root.snap.Today.Groups[1].RoutineID
 	root = pressKey(t, root, "t")
 	root = pressKey(t, root, "e")
@@ -108,7 +108,7 @@ func TestEditReminderWorksWhileExpandedAndPreservesStatus(t *testing.T) {
 	})
 	originalID := backend.reminders[0].ID
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColReminders, Block: RemindersList, Item: 0}
+	setPanelFocus(root, Focus{Column: ColReminders, Block: RemindersList, Item: 0})
 	root = pressKey(t, root, "t")
 	root = pressKey(t, root, "e")
 	if root.modal == nil {
@@ -136,7 +136,7 @@ func TestCancellingEditLeavesEntityUnchanged(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newFakeBackend(today).withHabits(domain.Habit{Title: "Read"})
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColToday, Block: 1, Item: 0}
+	setPanelFocus(root, Focus{Column: ColToday, Block: 1, Item: 0})
 	root = pressKey(t, root, "e")
 	root = replaceFocusedText(t, root, "Read", "Changed")
 	root = pressKey(t, root, "esc")
@@ -152,7 +152,7 @@ func TestDeleteHabitRequiresConfirmationAndClampsSelection(t *testing.T) {
 		domain.Habit{Title: "One"}, domain.Habit{Title: "Two"},
 	)
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColToday, Block: 1, Item: 1}
+	setPanelFocus(root, Focus{Column: ColToday, Block: 1, Item: 1})
 	root = pressKey(t, root, "delete")
 
 	if root.modal == nil || hasCall(backend.calls, "DeleteHabit") || len(backend.habits) != 2 {
@@ -171,7 +171,7 @@ func TestDeleteFinalHabitMovesFocusToAddBlock(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newFakeBackend(today).withHabits(domain.Habit{Title: "Only"})
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColToday, Block: 1, Item: 0}
+	setPanelFocus(root, Focus{Column: ColToday, Block: 1, Item: 0})
 	root = pressKey(t, root, "delete")
 	root = confirmDeletion(t, root)
 
@@ -184,7 +184,7 @@ func TestCancellingDeleteIsNonMutating(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newFakeBackend(today).withReminders(domain.Reminder{Title: "Keep", Date: today})
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColReminders, Block: RemindersList, Item: 0}
+	setPanelFocus(root, Focus{Column: ColReminders, Block: RemindersList, Item: 0})
 	root = pressKey(t, root, "delete")
 	root = pressKey(t, root, "n")
 
@@ -197,7 +197,7 @@ func TestDeleteConfirmationEnterKeepsDefaultCancel(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newFakeBackend(today).withHabits(domain.Habit{Title: "Keep"})
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColToday, Block: 1, Item: 0}
+	setPanelFocus(root, Focus{Column: ColToday, Block: 1, Item: 0})
 	root = pressKey(t, root, "delete")
 	root = pressKey(t, root, "enter")
 
@@ -210,7 +210,7 @@ func TestDeleteRoutineDetachesChildrenAndCleansCollapsedState(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newRichBackend(today)
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColToday, Block: 2, Item: 2}
+	setPanelFocus(root, Focus{Column: ColToday, Block: 2, Item: 2})
 	routineID := *root.snap.Today.Groups[1].RoutineID
 	root = pressKey(t, root, "t")
 	if !root.collapsedRoutines[routineID] {
@@ -242,7 +242,7 @@ func TestDeleteReminderCleansExpansionAndHandlesFinalItem(t *testing.T) {
 		domain.Reminder{Title: "Two", Date: today.AddDays(1)},
 	)
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColReminders, Block: RemindersList, Item: 1}
+	setPanelFocus(root, Focus{Column: ColReminders, Block: RemindersList, Item: 1})
 	root = pressKey(t, root, "t")
 	root = pressKey(t, root, "delete")
 	root = confirmDeletion(t, root)
@@ -252,14 +252,14 @@ func TestDeleteReminderCleansExpansionAndHandlesFinalItem(t *testing.T) {
 
 	root = pressKey(t, root, "delete")
 	root = confirmDeletion(t, root)
-	if len(backend.reminders) != 0 || root.focus.Block != RemindersList || root.focus.Item != 0 || root.editableSelection().valid() {
+	if len(backend.reminders) != 0 || root.focus.Block != RemindersCalendar || root.focus.Item != 0 || root.editableSelection().valid() {
 		t.Fatalf("deleting final reminder left invalid selection: reminders=%+v focus=%+v", backend.reminders, root.focus)
 	}
 }
 
 func TestEditAndToggleKeysAreContextual(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(domain.MustParseDate("2026-08-10")))
-	root.focus = Focus{Column: ColOverview, Block: OverviewLifetime, Item: 0}
+	setPanelFocus(root, Focus{Column: ColOverview, Block: OverviewLifetime, Item: 0})
 	root = pressKey(t, root, "e")
 	if root.modal != nil {
 		t.Fatal("e should not edit a non-entity Overview block")
@@ -268,5 +268,40 @@ func TestEditAndToggleKeysAreContextual(t *testing.T) {
 	root = pressKey(t, root, "t")
 	if len(root.collapsedRoutines) != before {
 		t.Fatal("t should not toggle an unrelated block")
+	}
+}
+
+func TestEmptyRoutineRemainsVisibleSelectableEditableAndDeletable(t *testing.T) {
+	today := domain.MustParseDate("2026-08-10")
+	backend := newFakeBackend(today).withRoutines(domain.Routine{Title: "Morning"})
+	root := newReadyRoot(t, backend)
+	root = enterPanel(t, root, ColToday)
+	root = pressKey(t, root, "down") // Add Habit -> Add Routine
+	root = pressKey(t, root, "down") // Add Routine -> empty routine header
+
+	if root.focus != (Focus{Column: ColToday, Block: 1, Item: 0}) {
+		t.Fatalf("empty routine focus = %+v, want first routine header", root.focus)
+	}
+	rendered := stripANSI(root.renderToday(30, 29))
+	if !strings.Contains(rendered, "Morning  0/0") {
+		t.Fatalf("empty routine is not rendered with a 0/0 summary:\n%s", rendered)
+	}
+	selection := root.editableSelection()
+	if selection.routine == nil || selection.routine.Title != "Morning" {
+		t.Fatalf("empty routine selection = %+v, want Morning routine", selection)
+	}
+
+	root = pressKey(t, root, "e")
+	if root.modal == nil || !strings.Contains(stripANSI(root.modal.form.View()), "Edit routine") {
+		t.Fatal("empty routine did not open its edit form")
+	}
+	root = pressKey(t, root, "esc")
+	root = pressKey(t, root, "delete")
+	if root.modal == nil || !strings.Contains(stripANSI(root.modal.form.View()), `Delete routine "Morning"?`) {
+		t.Fatal("empty routine did not open its delete confirmation")
+	}
+	root = confirmDeletion(t, root)
+	if len(backend.routines) != 0 || len(root.snap.Today.Groups) != 0 {
+		t.Fatalf("empty routine deletion failed: backend=%+v groups=%+v", backend.routines, root.snap.Today.Groups)
 	}
 }

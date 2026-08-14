@@ -9,15 +9,14 @@ import (
 type helpEntry struct{ key, desc string }
 
 var helpEntries = []helpEntry{
-	{"Left/Right, h/l", "switch column"},
-	{"Tab / Shift+Tab", "switch block"},
-	{"Up/Down, j/k", "move selection"},
-	{"Enter", "act / toggle / confirm"},
+	{"Tab / Shift+Tab", "next / previous panel in the header"},
+	{"Enter", "enter panel / act / toggle / confirm"},
+	{"Up/Down, j/k", "move through panel items"},
 	{"e", "edit selected habit, routine or reminder"},
 	{"t", "expand / collapse routine or reminder"},
 	{"Delete", "delete selected entity with confirmation"},
 	{"< / > ([ / ])", "previous / next month on a calendar"},
-	{"Esc", "close modal or help"},
+	{"Esc", "close modal/help or return to the header"},
 	{"?", "toggle this help"},
 	{"q", "quit"},
 }

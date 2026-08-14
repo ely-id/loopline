@@ -20,10 +20,9 @@ type SQLite struct {
 	db *sql.DB
 }
 
-// DefaultPath intentionally retains loopline's pre-rename XDG location:
-// $XDG_DATA_HOME/routine-tui/routine.db, falling back to
-// ~/.local/share/routine-tui/routine.db. Keeping it stable prevents an upgrade
-// from appearing to lose user data. The directory is created with 0o700.
+// DefaultPath resolves loopline's XDG data location:
+// $XDG_DATA_HOME/loopline/loopline.db, falling back to
+// ~/.local/share/loopline/loopline.db. The directory is created with 0o700.
 func DefaultPath() (string, error) {
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {
@@ -33,11 +32,11 @@ func DefaultPath() (string, error) {
 		}
 		base = filepath.Join(home, ".local", "share")
 	}
-	dir := filepath.Join(base, "routine-tui")
+	dir := filepath.Join(base, "loopline")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create data directory %s: %w", dir, err)
 	}
-	return filepath.Join(dir, "routine.db"), nil
+	return filepath.Join(dir, "loopline.db"), nil
 }
 
 // pragmaDSN carries the connection-local PRAGMAs every physical connection

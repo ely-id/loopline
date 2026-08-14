@@ -13,9 +13,10 @@ func TestRoutineExpandCollapseCorrectsFocusAndHidesChildren(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newRichBackend(today)
 	root := newReadyRoot(t, backend)
-	root = pressKey(t, root, "right")
-	root = pressKey(t, root, "tab")
-	root = pressKey(t, root, "tab") // Morning routine
+	root = enterPanel(t, root, ColToday)
+	for root.focus.Block != 2 || root.focus.Item != 1 {
+		root = pressKey(t, root, "down")
+	}
 	root = pressKey(t, root, "down")
 	root = pressKey(t, root, "down")
 
@@ -45,16 +46,16 @@ func TestRoutineExpandCollapseCorrectsFocusAndHidesChildren(t *testing.T) {
 	if len(backend.calls) != calls {
 		t.Fatal("Enter on a collapsed routine header must not toggle a hidden habit")
 	}
-	root = pressKey(t, root, "t")
-	if root.routineCollapsed(root.snap.Today.Groups[1]) || root.itemCount(ColToday, root.focus.Block) != 3 {
-		t.Fatal("second t did not restore the routine's children")
+	if root.routineCollapsed(root.snap.Today.Groups[1]) || root.itemCount(ColToday, root.focus.Block) != 4 {
+		t.Fatal("Enter on a routine header did not restore its three children")
 	}
 }
 
 func TestExpandDoesNotCollapseUngroupedHabits(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(domain.MustParseDate("2026-08-10")))
-	root = pressKey(t, root, "right")
-	root = pressKey(t, root, "tab") // ungrouped
+	root = enterPanel(t, root, ColToday)
+	root = pressKey(t, root, "down")
+	root = pressKey(t, root, "down") // ungrouped
 	before := root.itemCount(ColToday, root.focus.Block)
 	root = pressKey(t, root, "t")
 	if got := root.itemCount(ColToday, root.focus.Block); got != before {
@@ -64,25 +65,25 @@ func TestExpandDoesNotCollapseUngroupedHabits(t *testing.T) {
 
 func TestFooterShowsExpandHintOnlyForStructuredSelection(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(domain.MustParseDate("2026-08-10")))
-	footer := stripANSI(root.renderFooter())
+	footer := flattenWhitespace(stripANSI(root.renderFooter()))
 	if strings.Contains(footer, "t expand") || strings.Contains(footer, "t collapse") {
 		t.Fatal("Overview lifetime footer should not advertise an irrelevant expand action")
 	}
-	root.focus = Focus{Column: ColToday, Block: 2, Item: 0}
-	if !strings.Contains(stripANSI(root.renderFooter()), "t collapse") {
+	setPanelFocus(root, Focus{Column: ColToday, Block: 2, Item: 0})
+	if !strings.Contains(flattenWhitespace(stripANSI(root.renderFooter())), "t collapse") {
 		t.Fatal("expanded routine footer is missing the collapse hint")
 	}
 	root.toggleExpansion()
-	if !strings.Contains(stripANSI(root.renderFooter()), "t expand") {
+	if !strings.Contains(flattenWhitespace(stripANSI(root.renderFooter())), "t expand") {
 		t.Fatal("collapsed routine footer is missing the expand hint")
 	}
 
-	root.focus = Focus{Column: ColReminders, Block: RemindersList, Item: 0}
-	if !strings.Contains(stripANSI(root.renderFooter()), "t expand") {
+	setPanelFocus(root, Focus{Column: ColReminders, Block: RemindersList, Item: 0})
+	if !strings.Contains(flattenWhitespace(stripANSI(root.renderFooter())), "t expand") {
 		t.Fatal("collapsed reminder footer is missing the expand hint")
 	}
 	root.toggleExpansion()
-	if !strings.Contains(stripANSI(root.renderFooter()), "t collapse") {
+	if !strings.Contains(flattenWhitespace(stripANSI(root.renderFooter())), "t collapse") {
 		t.Fatal("expanded reminder footer is missing the collapse hint")
 	}
 }
@@ -90,9 +91,9 @@ func TestFooterShowsExpandHintOnlyForStructuredSelection(t *testing.T) {
 func TestFooterShowsEditToggleAndDeleteBindingsAtMinimumWidth(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(domain.MustParseDate("2026-08-10")))
 	root.width = MinWidth
-	root.focus = Focus{Column: ColToday, Block: 2, Item: 0}
-	footer := stripANSI(root.renderFooter())
-	for _, want := range []string{"enter act", "e edit", "t collapse", "Delete delete", "? help", "q quit"} {
+	setPanelFocus(root, Focus{Column: ColToday, Block: 2, Item: 0})
+	footer := flattenWhitespace(stripANSI(root.renderFooter()))
+	for _, want := range []string{"enter act", "e edit", "t collapse", "del delete", "esc menu"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("minimum-width footer is missing %q: %q", want, footer)
 		}
@@ -124,7 +125,7 @@ func TestReminderExpandCollapseShowsExistingMetadata(t *testing.T) {
 		Notes: "first line\nsecond line with additional context",
 	})
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColReminders, Block: RemindersList, Item: 0}
+	setPanelFocus(root, Focus{Column: ColReminders, Block: RemindersList, Item: 0})
 
 	compact, _, _ := root.reminderLines(25, root.sortedReminders(), true)
 	if len(compact) != 1 {
@@ -166,7 +167,7 @@ func TestReminderExpansionHandlesMissingNotesAndCompletedStatus(t *testing.T) {
 		Title: "Archived task", Date: today.AddDays(-1), Completed: true,
 	})
 	root := newReadyRoot(t, backend)
-	root.focus = Focus{Column: ColReminders, Block: RemindersList, Item: 0}
+	setPanelFocus(root, Focus{Column: ColReminders, Block: RemindersList, Item: 0})
 	root = pressKey(t, root, "t")
 
 	lines, _, _ := root.reminderLines(27, root.sortedReminders(), true)

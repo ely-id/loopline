@@ -133,6 +133,22 @@ func newReadyRoot(t *testing.T, backend *fakeBackend) *Root {
 	return m
 }
 
+func enterPanel(t *testing.T, m *Root, col int) *Root {
+	t.Helper()
+	if m.navigation == NavigationPanel {
+		m = pressKey(t, m, "esc")
+	}
+	for m.focus.Column != col {
+		m = pressKey(t, m, "tab")
+	}
+	return pressKey(t, m, "enter")
+}
+
+func setPanelFocus(m *Root, focus Focus) {
+	m.navigation = NavigationPanel
+	m.focus = focus
+}
+
 func TestInitLoadsSnapshot(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newFakeBackend(today).withHabits(domain.Habit{Title: "Drink water"})
@@ -167,34 +183,23 @@ func TestWindowSizeAtMinimumRendersColumns(t *testing.T) {
 	if strings.Contains(view.Content, "loopline needs a little more room") {
 		t.Fatal("View at exactly MinWidth x MinHeight should render columns, not the min-size message")
 	}
-	if !strings.Contains(view.Content, "Overview") || !strings.Contains(view.Content, "Reminders") {
+	if !strings.Contains(view.Content, "OVERVIEW") || !strings.Contains(view.Content, "REMINDERS") {
 		t.Fatalf("View missing expected column titles: %q", view.Content)
 	}
 }
 
-func TestArrowKeysNavigateColumnsAndWrap(t *testing.T) {
+func TestArrowKeysDoNotReplaceHeaderTabNavigation(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	m := newReadyRoot(t, newFakeBackend(today))
 
 	if m.focus.Column != ColOverview {
 		t.Fatalf("initial column = %d, want ColOverview", m.focus.Column)
 	}
-	m = pressKey(t, m, "left") // wraps to reminders
-	if m.focus.Column != ColReminders {
-		t.Fatalf("column after left = %d, want ColReminders", m.focus.Column)
-	}
-	m = pressKey(t, m, "right")
-	if m.focus.Column != ColOverview {
-		t.Fatalf("column after right = %d, want ColOverview", m.focus.Column)
-	}
-	// h/l aliases
-	m = pressKey(t, m, "l")
-	if m.focus.Column != ColToday {
-		t.Fatalf("column after 'l' = %d, want ColToday", m.focus.Column)
-	}
-	m = pressKey(t, m, "h")
-	if m.focus.Column != ColOverview {
-		t.Fatalf("column after 'h' = %d, want ColOverview", m.focus.Column)
+	for _, input := range []string{"left", "right", "h", "l", "up", "down"} {
+		m = pressKey(t, m, input)
+		if m.focus.Column != ColOverview || m.navigation != NavigationHeader {
+			t.Fatalf("%s changed header focus unexpectedly: mode=%d focus=%+v", input, m.navigation, m.focus)
+		}
 	}
 }
 
@@ -203,8 +208,9 @@ func TestEnterTogglesHabit(t *testing.T) {
 	backend := newFakeBackend(today).withHabits(domain.Habit{Title: "Stretch"})
 	m := newReadyRoot(t, backend)
 
-	m = pressKey(t, m, "right") // overview -> today
-	m = pressKey(t, m, "tab")   // Add actions -> first habit group
+	m = enterPanel(t, m, ColToday)
+	m = pressKey(t, m, "down") // Add Habit -> Add Routine
+	m = pressKey(t, m, "down") // Add Routine -> first habit
 	if m.focus.Column != ColToday {
 		t.Fatalf("column = %d, want ColToday", m.focus.Column)
 	}
@@ -229,7 +235,7 @@ func TestAddHabitFormEndToEnd(t *testing.T) {
 	m := newReadyRoot(t, backend)
 
 	// Add Habit is the first item in Today's Add block.
-	m = pressKey(t, m, "right")
+	m = enterPanel(t, m, ColToday)
 	m = pressKey(t, m, "enter")
 	if m.modal == nil {
 		t.Fatal("enter on 'Add habit' should open a modal")
@@ -259,7 +265,7 @@ func TestEscClosesModalWithoutSubmitting(t *testing.T) {
 	backend := newFakeBackend(today)
 	m := newReadyRoot(t, backend)
 
-	m = pressKey(t, m, "right")
+	m = enterPanel(t, m, ColToday)
 	m = pressKey(t, m, "enter") // open Add habit
 	if m.modal == nil {
 		t.Fatal("modal should be open")
@@ -281,9 +287,17 @@ func TestHelpOverlayTogglesAndBlocksOtherKeys(t *testing.T) {
 	if !m.help {
 		t.Fatal("? should open help")
 	}
-	m = pressKey(t, m, "right") // should be swallowed by the help overlay
+	m = pressKey(t, m, "tab") // should be swallowed by the help overlay
 	if m.focus.Column != ColOverview {
 		t.Fatalf("column changed while help was open: %d", m.focus.Column)
+	}
+	updated, cmd := m.Update(keyMsg("q"))
+	m = updated.(*Root)
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("q should not quit while the help overlay owns input")
+	}
+	if !m.help {
+		t.Fatal("q unexpectedly closed the help overlay")
 	}
 	m = pressKey(t, m, "esc")
 	if m.help {
@@ -295,7 +309,7 @@ func TestQuitOnlyWhenNoModalOpen(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	m := newReadyRoot(t, newFakeBackend(today))
 
-	m = pressKey(t, m, "right")
+	m = enterPanel(t, m, ColToday)
 	m = pressKey(t, m, "enter") // open Add habit modal
 	if m.modal == nil {
 		t.Fatal("modal should be open")
@@ -325,7 +339,7 @@ func TestReminderToggleAndAddReminderForm(t *testing.T) {
 	backend := newFakeBackend(today)
 	m := newReadyRoot(t, backend)
 
-	m = pressKey(t, m, "left")  // to reminders column
+	m = enterPanel(t, m, ColReminders)
 	m = pressKey(t, m, "enter") // open Add reminder
 	if m.modal == nil {
 		t.Fatal("modal should open for Add reminder")
@@ -343,8 +357,8 @@ func TestReminderToggleAndAddReminderForm(t *testing.T) {
 		t.Fatalf("backend.reminders = %+v, want one reminder", backend.reminders)
 	}
 
-	m = pressKey(t, m, "tab") // actions block -> calendar
-	m = pressKey(t, m, "tab") // calendar -> list
+	m = pressKey(t, m, "down") // actions -> calendar
+	m = pressKey(t, m, "down") // calendar -> list
 	if m.focus.Block != RemindersList {
 		t.Fatalf("block = %d, want RemindersList", m.focus.Block)
 	}

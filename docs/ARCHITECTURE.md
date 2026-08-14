@@ -7,20 +7,19 @@ lead updates this document.
 ## 1. Dependency direction
 
 ```
-cmd/routine ──> internal/ui ──> internal/app ──> internal/domain
+cmd/loopline ─> internal/ui ──> internal/app ──> internal/domain
      │                  │                            ▲
      │                  └──> internal/theme          │
      └──> internal/store ──────────────────────────-─┘
 ```
 
 - `internal/domain` imports **only the Go standard library**.
-- `internal/store` implements `app.Store`; nothing imports `store` except `cmd/routine`.
+- `internal/store` implements `app.Store`; nothing imports `store` except `cmd/loopline`.
 - `internal/app` never imports `ui`, `store` or `theme`.
 - `internal/ui` never touches SQLite and never calls `time.Now()`.
-- `cmd/routine` wires everything: resolve XDG path → open SQLite → enable
+- `cmd/loopline` wires everything: resolve XDG path → open SQLite → enable
   foreign keys → run migrations → build `app.Service` → build `ui.Root` → run
-  the Bubble Tea program. It remains the compatibility source path, while
-  release builds use `go build -o loopline ./cmd/routine`.
+  the Bubble Tea program. Release builds use `go build ./cmd/loopline`.
 
 ## 2. File ownership (hard rule: do not edit files you do not own)
 
@@ -28,8 +27,8 @@ cmd/routine ──> internal/ui ──> internal/app ──> internal/domain
 |---|---|
 | **data** | `internal/domain/**` (except the frozen files below), `internal/store/**` |
 | **ui** | `internal/ui/**`, `internal/theme/**` |
-| **qa** | test files named `spec_*_test.go` in any package; `internal/app/*_test.go`; `cmd/routine/*_test.go` |
-| **lead** | `internal/app/*.go` (non-test), `cmd/routine/*.go`, `docs/**`, `go.mod` |
+| **qa** | test files named `spec_*_test.go` in any package; `internal/app/*_test.go`; `cmd/loopline/*_test.go` |
+| **lead** | `internal/app/*.go` (non-test), `cmd/loopline/*.go`, `docs/**`, `go.mod` |
 
 Frozen contract files, seeded by the lead. `data` owns them from now on but may
 **not** change exported signatures without asking the lead first:
@@ -46,9 +45,12 @@ if you believe a new dependency is required.
 
 - `domain.Date` is the only calendar type crossing package boundaries.
 - `domain.Clock` is the only source of "today". **No package other than
-  `cmd/routine` may call `time.Now()`.** `domain.SystemClock` is constructed in
-  `cmd/routine` and passed to `app.Service`. Tests use `domain.FixedClock`.
-- Weeks are ISO 8601, Monday first. `Date.StartOfWeek()` returns Monday.
+  `cmd/loopline` may call `time.Now()`.** `domain.SystemClock` is constructed in
+  `cmd/loopline` and passed to `app.Service`. Tests use `domain.FixedClock`.
+- Domain weeks are ISO 8601, Monday first. `Date.StartOfWeek()` returns Monday.
+  Weekly Overview and the Reminder Calendar are presentation-specific
+  Sunday-first views and derive their display boundary without changing the
+  domain helper or the Year block's ISO week number.
 - SQLite stores dates as `TEXT` in `YYYY-MM-DD` (`domain.DateLayout`), which
   sorts and compares lexicographically.
 - Timestamps (`completed_at`, `created_at`) are stored as RFC3339 `TEXT`; they
@@ -124,16 +126,15 @@ strictly before it if `upTo` itself is incomplete.
 
 ### internal/store (owner: data)
 
-- `store.DefaultPath() (string, error)` — `$XDG_DATA_HOME/routine-tui/routine.db`,
-  falling back to `~/.local/share/routine-tui/routine.db`; creates the directory
-  with `0o700`. This legacy directory is intentionally stable across the
-  product rename so existing user data remains discoverable.
+- `store.DefaultPath() (string, error)` — `$XDG_DATA_HOME/loopline/loopline.db`,
+  falling back to `~/.local/share/loopline/loopline.db`; creates the directory
+  with `0o700`.
 - `store.Open(path string) (*store.SQLite, error)` — `modernc.org/sqlite`,
   driver name `sqlite`; sets `PRAGMA foreign_keys=ON`, `journal_mode=WAL`,
   `busy_timeout=5000`; runs migrations; `db.SetMaxOpenConns(1)`.
 - `store.OpenMemory() (*store.SQLite, error)` — in-memory DB for tests.
 - `*store.SQLite` implements every method of `app.Store` (see
-  `internal/app/ports.go`). Compile-time assertion lives in `cmd/routine`.
+  `internal/app/ports.go`). Compile-time assertion lives in `cmd/loopline`.
 - Migrations: ordered slice of `{Version int, SQL string}` applied inside one
   transaction each, tracked in a `schema_migrations` table. Never edit an
   applied migration; append a new one.
@@ -208,8 +209,10 @@ func (s *Service) DeleteReminder(ctx, id int64) error
 ANSI-16 only. Use `lipgloss.Color("0")`..`lipgloss.Color("15")`; never set a
 background on the page body so the terminal background shows through. No RGB
 hex unless justified in a comment. Exposes a `theme.Theme` value built by
-`theme.New()` holding named `lipgloss.Style` fields, including completion
-calendar intensity styles whose glyph shape remains meaningful without colour.
+`theme.New()` holding named `lipgloss.Style` fields, including the discrete
+completion heatmap scale. Every active day uses exact U+F0C8; ANSI colour is
+primary, with faint no-data and bold/underlined current-day treatment as quiet
+redundant cues.
 
 This package also owns the form palette: `theme.HuhTheme()` returns a
 `huh.Theme` built from the same ANSI-16 colours, applied to every modal in
@@ -224,7 +227,7 @@ no first-party package).
 Bubble Tea **v2** (`charm.land/bubbletea/v2`): `Update(tea.Msg) (tea.Model, tea.Cmd)`,
 `View() tea.View`, key messages are `tea.KeyPressMsg` (`msg.String()`).
 
-Root model owns *all* focus and ephemeral expansion state:
+Root model owns *all* navigation, focus and ephemeral expansion state:
 
 ```go
 type Focus struct {
@@ -234,6 +237,12 @@ type Focus struct {
 }
 ```
 
+`NavigationMode` is either header or panel. In header mode `Focus.Column`
+selects the global header entry. Enter switches to panel mode. In panel mode a
+flattened list of every selectable `(Block, Item)` pair provides one continuous
+Up/Down surface; empty blocks contribute no targets. Esc returns to header mode
+without changing `Focus.Column`.
+
 Modal state is a separate field on the root; when a modal is open it consumes
 every key except `esc`. Child models are **presentational**: they receive
 `Focus` + data and return a string; they hold no independent focus state.
@@ -242,16 +251,18 @@ are never persisted.
 
 Column blocks:
 
-- Column 0 (overview): `0` lifetime history, `1` monthly completion calendar;
-  compact Year progress follows as non-interactive content and receives no
-  focus block.
-- Column 1 (today): `0` Add habit/Add routine, then one block per habit group —
-  ungrouped first (only when non-empty), followed by routines in position order.
+- Column 0 (overview): `0` lifetime history, `1` bounded current-week habit
+  matrix, `2` monthly completion heatmap. Completion is bottom anchored.
+- Column 1 (habits): `0` Add habit/Add routine, then one block per habit group —
+  ungrouped first (only when non-empty), followed by every active routine in
+  position order, including `0/0` routines. A routine header is item 0; expanded
+  children follow it.
 - Column 2 (reminders): `0` Add reminder, `1` conventional calendar, `2`
-  upcoming reminders list.
+  upcoming reminders list. Non-interactive Year progress is bottom anchored.
 
-Keys, exactly as SPEC.md: `left/right` column, `tab/shift+tab` block,
-`up/down` item, `enter` activate/toggle, `e` edit the selected entity, `t`
+Keys, exactly as SPEC.md: header `tab/shift+tab` panel selection, `enter` enters
+the selected panel, panel `up/down` traverses all local targets, `esc` returns
+to the header, `enter` activates/toggles, `e` edits the selected entity, `t`
 expand/collapse structured items, physical `Delete` opens a destructive
 confirmation, `</>` (and `[/]`) previous/next month on either calendar,
 `esc` close modal, `?` help, `q` quit when no modal is open. `h/j/k/l` may be
@@ -259,9 +270,11 @@ added as aliases.
 
 Responsive: compute three column widths from `tea.WindowSizeMsg`. Below
 `ui.MinWidth = 96` or `ui.MinHeight = 33`, render a single centred minimum-size
-message and nothing else. At the minimum, a one-row footer and column borders
-leave 30 content rows. A six-week reminder calendar still leaves 15 list rows;
-this real budget is pinned by end-to-end tests.
+message and nothing else. The header uses the embedded four-row ASCII mark only
+when width and height are comfortable, then falls back to textual `loopline`,
+then the minimal identity mark. At the minimum, a one-row text header, one-row
+footer and column borders leave 29 content rows. Fixed lower blocks are reserved
+before variable list/viewport heights are calculated.
 Height budgeting must measure **wrapped** height at the real usable column
 width, not logical string count.
 
@@ -299,7 +312,7 @@ ungrouped habits. `huh.Form.Update` returns `(huh.Model, tea.Cmd)` and
 ## 6. Working agreements
 
 - After meaningful changes run: `go fmt ./...`, `go test ./...`, `go vet ./...`,
-  `go build -o loopline ./cmd/routine`. The tree may not compile during phase 1 while
+  `go build ./cmd/loopline`. The tree may not compile during phase 1 while
   another agent's package is still stubbed — that is expected; make sure *your*
   package compiles (`go build ./internal/<yours>/...`).
 - Prefer the standard library. No new abstractions, no ORM, no DI framework.

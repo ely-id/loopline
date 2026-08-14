@@ -1,5 +1,5 @@
-// Command routine is loopline's compatibility source entry point: a keyboard-first daily
-// habit, routine and reminder manager for the terminal.
+// Command loopline is the executable entry point for the keyboard-first
+// daily habit, routine and reminder manager.
 package main
 
 import (
@@ -16,8 +16,6 @@ import (
 	"loopline/internal/ui"
 )
 
-// compile-time proof that the SQLite store satisfies the application's
-// persistence contract.
 var _ app.Store = (*store.SQLite)(nil)
 
 func main() {

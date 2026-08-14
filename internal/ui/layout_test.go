@@ -13,15 +13,15 @@ import (
 )
 
 // sixWeekMonthToday is a date whose month renders as a full six calendar
-// rows (Monday-first): the worst case renderOverview must still fit inside
+// rows (Sunday-first): the worst case renderOverview must still fit inside
 // MinHeight without being clipped. August 2026 starts on a Saturday and ends
-// on a Monday, so its grid spans Jul 27 - Sep 6 (6 rows).
+// on a Monday, so its grid spans Jul 26 - Sep 5 (6 rows).
 var sixWeekMonthToday = domain.MustParseDate("2026-08-10")
 
 func TestFixedNerdFontIconsHaveStableSingleCellWidth(t *testing.T) {
 	icons := []string{
-		theme.IconLoop, theme.IconToday, theme.IconReminders,
-		theme.IconLifetime, theme.IconCompletion, theme.IconYear, theme.IconCalendar,
+		theme.IconLoop, theme.IconOverview, theme.IconHabits, theme.IconReminders,
+		theme.IconLifetime, theme.IconWeekly, theme.IconCompletion, theme.IconYear, theme.IconCalendar,
 	}
 	for _, icon := range icons {
 		if width := lipgloss.Width(icon); width != 1 {
@@ -60,16 +60,16 @@ func TestColumnWidthsPrioritizeTodayAndSumExactly(t *testing.T) {
 }
 
 // TestOverviewContentFitsAtMinHeight pins the redesigned six-week completion
-// calendar against the real 30-row content budget at 96x33.
+// calendar against the real 29-row content budget at 96x33.
 func TestOverviewContentFitsAtMinHeight(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(sixWeekMonthToday))
 	if weeks := len(root.snap.Calendar.Weeks); weeks != 6 {
 		t.Fatalf("fixture drifted: calendar has %d weeks, want 6 (the worst case this test exists to cover)", weeks)
 	}
 
-	lines := strings.Split(root.renderOverview(27), "\n")
+	lines := strings.Split(root.renderOverview(27, MinHeight-4), "\n")
 
-	budget := MinHeight - 3 // one footer row + two column-border rows
+	budget := MinHeight - 4 // one header, one footer, two column-border rows
 	if len(lines) > budget {
 		t.Fatalf("renderOverview produced %d lines, want <= %d (MinHeight=%d budget); raise MinHeight to match", len(lines), budget, MinHeight)
 	}
@@ -102,8 +102,9 @@ func TestTodayLongListKeepsFocusedItemVisibleAndProgressPinned(t *testing.T) {
 
 	root := newReadyRoot(t, backend)
 	root = send(t, root, tea.WindowSizeMsg{Width: MinWidth, Height: MinHeight})
-	root = pressKey(t, root, "right") // overview -> today
-	root = pressKey(t, root, "tab")   // Add actions -> ungrouped habits
+	root = enterPanel(t, root, ColToday)
+	root = pressKey(t, root, "down") // Add Habit -> Add Routine
+	root = pressKey(t, root, "down") // Add Routine -> ungrouped habits
 
 	for i := 0; i < len(habits)-1; i++ {
 		root = pressKey(t, root, "down")

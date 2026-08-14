@@ -30,6 +30,32 @@ type TodayView struct {
 	Summary domain.DailySummary
 }
 
+// WeeklyHabit is one habit's schedule and completion state across the current
+// Sunday-through-Saturday display week. Scheduled and Completed are deliberately separate so the
+// UI can distinguish an inactive day from a scheduled-but-incomplete day
+// without inventing a persistent "partial" completion state.
+type WeeklyHabit struct {
+	Habit domain.Habit
+	Days  [7]WeeklyDay
+}
+
+// WeeklyDay is one Sunday-first cell in Weekly Overview.
+type WeeklyDay struct {
+	Date      domain.Date
+	Scheduled bool
+	Completed bool
+	IsToday   bool
+	IsFuture  bool
+}
+
+// WeeklyOverview is the current Sunday-through-Saturday display week,
+// independent of the month selected in either calendar.
+type WeeklyOverview struct {
+	Start domain.Date
+	End   domain.Date
+	Rows  []WeeklyHabit
+}
+
 // CalendarDay is one cell of the month calendar.
 type CalendarDay struct {
 	Date        domain.Date
@@ -40,7 +66,7 @@ type CalendarDay struct {
 	HasReminder bool
 }
 
-// CalendarMonth is a Monday-first month grid; Weeks always holds full rows of
+// CalendarMonth is a Sunday-first month grid; Weeks always holds full rows of
 // seven days, padded with adjacent-month days flagged InMonth false.
 type CalendarMonth struct {
 	Year  int
@@ -61,6 +87,7 @@ type Overview struct {
 // storage itself; it asks for a Snapshot and replaces its state wholesale.
 type Snapshot struct {
 	Today     TodayView
+	Weekly    WeeklyOverview
 	Overview  Overview
 	Calendar  CalendarMonth
 	Reminders []domain.Reminder

@@ -110,7 +110,7 @@ func TestSpecMidnightRolloverWhileRunning(t *testing.T) {
 
 	// The "add reminder" form's date default must follow the new today, not
 	// the day the process happened to start on.
-	root = pressKey(t, root, "left") // Overview -> Reminders
+	root = enterPanel(t, root, ColReminders)
 	if root.focus.Column != ColReminders {
 		t.Fatalf("focus.Column = %d, want ColReminders", root.focus.Column)
 	}

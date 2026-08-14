@@ -12,10 +12,13 @@ type selectedEntity struct {
 	reminder *domain.Reminder
 }
 
-// editableSelection resolves the entity implied by the current focus. An
-// expanded routine selects one of its habits; a collapsed routine selects its
-// header and therefore the routine itself.
+// editableSelection resolves the entity implied by the current local focus.
+// Routine headers are always first-class selectable entities; their children
+// follow them when expanded.
 func (m *Root) editableSelection() selectedEntity {
+	if m.navigation != NavigationPanel {
+		return selectedEntity{}
+	}
 	switch m.focus.Column {
 	case ColToday:
 		groupIndex := m.focus.Block - 1
@@ -23,7 +26,7 @@ func (m *Root) editableSelection() selectedEntity {
 			return selectedEntity{}
 		}
 		group := m.snap.Today.Groups[groupIndex]
-		if m.routineCollapsed(group) && group.RoutineID != nil {
+		if group.RoutineID != nil && m.focus.Item == 0 {
 			for _, routine := range m.snap.Routines {
 				if routine.ID == *group.RoutineID {
 					copy := routine
@@ -32,10 +35,14 @@ func (m *Root) editableSelection() selectedEntity {
 			}
 			return selectedEntity{}
 		}
-		if m.focus.Item < 0 || m.focus.Item >= len(group.Items) {
+		itemIndex := m.focus.Item
+		if group.RoutineID != nil {
+			itemIndex--
+		}
+		if itemIndex < 0 || itemIndex >= len(group.Items) {
 			return selectedEntity{}
 		}
-		habit := group.Items[m.focus.Item].Habit
+		habit := group.Items[itemIndex].Habit
 		return selectedEntity{habit: &habit}
 	case ColReminders:
 		if m.focus.Block != RemindersList {

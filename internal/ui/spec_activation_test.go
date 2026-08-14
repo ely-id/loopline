@@ -36,8 +36,9 @@ func TestSpecActivateRapidDoubleEnterTogglesHabitExactlyOnce(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newFakeBackend(today).withHabits(domain.Habit{Title: "Stretch"})
 	root := newReadyRoot(t, backend)
-	root = pressKey(t, root, "right") // Overview -> Today Add block
-	root = pressKey(t, root, "tab")   // first habit group
+	root = enterPanel(t, root, ColToday)
+	root = pressKey(t, root, "down") // Add Habit -> Add Routine
+	root = pressKey(t, root, "down") // first habit group
 
 	if root.pending {
 		t.Fatal("setup: pending should start false")

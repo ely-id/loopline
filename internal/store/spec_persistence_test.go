@@ -52,7 +52,7 @@ func TestSpecOpenMemoryAppliesMigrationsExactlyOnce(t *testing.T) {
 }
 
 func TestSpecMigrationsAreIdempotentAcrossReopen(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "routine.db")
+	path := filepath.Join(t.TempDir(), "loopline.db")
 
 	db1, err := Open(path)
 	if err != nil {
@@ -489,7 +489,7 @@ func TestSpecForeignKeysAreEnforced(t *testing.T) {
 // --- on-disk persistence ---------------------------------------------------
 
 func TestSpecDataSurvivesCloseAndReopen(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "routine.db")
+	path := filepath.Join(t.TempDir(), "loopline.db")
 	ctx := context.Background()
 
 	db1, err := Open(path)
@@ -557,17 +557,17 @@ func TestSpecDefaultPathUsesXDGDataHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultPath: %v", err)
 	}
-	want := filepath.Join(tmp, "routine-tui", "routine.db")
+	want := filepath.Join(tmp, "loopline", "loopline.db")
 	if path != want {
 		t.Fatalf("DefaultPath() = %s, want %s", path, want)
 	}
 
-	info, err := os.Stat(filepath.Join(tmp, "routine-tui"))
+	info, err := os.Stat(filepath.Join(tmp, "loopline"))
 	if err != nil {
 		t.Fatalf("stat data dir: %v", err)
 	}
 	if !info.IsDir() {
-		t.Fatal("routine-tui path must be a directory")
+		t.Fatal("loopline path must be a directory")
 	}
 	if perm := info.Mode().Perm(); perm != 0o700 {
 		t.Fatalf("data dir permissions = %o, want 0700", perm)
@@ -583,7 +583,7 @@ func TestSpecDefaultPathFallsBackToHomeLocalShare(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultPath: %v", err)
 	}
-	want := filepath.Join(tmp, ".local", "share", "routine-tui", "routine.db")
+	want := filepath.Join(tmp, ".local", "share", "loopline", "loopline.db")
 	if path != want {
 		t.Fatalf("DefaultPath() = %s, want %s", path, want)
 	}

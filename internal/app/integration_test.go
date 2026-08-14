@@ -6,7 +6,7 @@ package app_test
 // behaviour (real BEGIN/COMMIT/ROLLBACK, real foreign keys, the atomic
 // ToggleCompletion read-modify-write) that only the actual driver exercises.
 // It lives in package app_test (not package app) since it needs no
-// unexported access and mirrors how cmd/routine wires app+store together.
+// unexported access and mirrors how cmd/loopline wires app+store together.
 
 import (
 	"context"

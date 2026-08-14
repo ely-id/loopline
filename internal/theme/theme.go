@@ -49,12 +49,15 @@ const (
 // appear in stable headings where their display width is accounted for.
 const (
 	IconLoop       = "󰑓"
+	IconOverview   = ""
+	IconHabits     = "󰯉"
 	IconLifetime   = ""
-	IconToday      = "󰄬"
-	IconReminders  = "󰂚"
+	IconReminders  = "󱓵"
 	IconCompletion = "󰃭"
 	IconYear       = "󰔛"
 	IconCalendar   = "󰃭"
+	IconWeekly     = "󰄉"
+	HeatmapSquare  = ""
 )
 
 // CompletionStage is the shared semantic scale used by both historical day
@@ -70,10 +73,6 @@ const (
 	CompletionStageComplete
 	CompletionStageCount
 )
-
-// CompletionGlyphs provide a non-colour signal alongside the semantic ANSI
-// colour scale. Array indexes match CompletionStage.
-var CompletionGlyphs = [CompletionStageCount]rune{'·', '░', '▒', '▓', '▆', '█'}
 
 // Theme is the full set of named styles the UI renders with. Values, not
 // pointers: cheap to build, safe to share, and copy-on-write per render.
@@ -92,9 +91,11 @@ type Theme struct {
 	// Column chrome (column = one of the three top-level regions).
 	Column         lipgloss.Style
 	ColumnFocused  lipgloss.Style
-	ColumnTitle    lipgloss.Style
-	ColumnTitleOn  lipgloss.Style
 	MinSizeMessage lipgloss.Style
+	HeaderBrand    lipgloss.Style
+	HeaderItem     lipgloss.Style
+	HeaderSelected lipgloss.Style
+	HeaderActive   lipgloss.Style
 
 	// Block chrome (block = a titled group inside a column).
 	BlockTitle   lipgloss.Style
@@ -137,9 +138,11 @@ type Theme struct {
 	ModalTitle  lipgloss.Style
 
 	// Help overlay and footer key hints.
-	HelpKey  lipgloss.Style
-	HelpDesc lipgloss.Style
-	Footer   lipgloss.Style
+	HelpKey    lipgloss.Style
+	HelpDesc   lipgloss.Style
+	Footer     lipgloss.Style
+	FooterKey  lipgloss.Style
+	FooterDesc lipgloss.Style
 }
 
 // New builds the theme. Called once by internal/ui at startup.
@@ -165,9 +168,11 @@ func New() Theme {
 		Border(border).
 		BorderForeground(t.BorderFocus).
 		Padding(0, 1)
-	t.ColumnTitle = lipgloss.NewStyle().Bold(true).Foreground(t.FgDim)
-	t.ColumnTitleOn = lipgloss.NewStyle().Bold(true).Foreground(t.Accent)
 	t.MinSizeMessage = lipgloss.NewStyle().Bold(true).Foreground(t.Warning)
+	t.HeaderBrand = lipgloss.NewStyle().Bold(true).Foreground(t.Accent)
+	t.HeaderItem = lipgloss.NewStyle().Bold(true).Foreground(t.FgDim)
+	t.HeaderSelected = lipgloss.NewStyle().Bold(true).Reverse(true)
+	t.HeaderActive = lipgloss.NewStyle().Bold(true).Foreground(t.Accent).Underline(true)
 
 	t.BlockTitle = lipgloss.NewStyle().Bold(true).Foreground(t.FgDim)
 	t.BlockTitleOn = lipgloss.NewStyle().Bold(true).Foreground(t.Accent)
@@ -195,7 +200,7 @@ func New() Theme {
 	t.CalOutMonth = lipgloss.NewStyle().Faint(true).Foreground(t.FgDim)
 	t.CalFuture = lipgloss.NewStyle().Foreground(t.FgDim)
 	t.CompletionStyles = [CompletionStageCount]lipgloss.Style{
-		lipgloss.NewStyle().Foreground(t.FgDim),
+		lipgloss.NewStyle().Faint(true).Foreground(t.FgDim),
 		lipgloss.NewStyle().Foreground(t.Danger),
 		lipgloss.NewStyle().Foreground(t.Warning),
 		lipgloss.NewStyle().Foreground(colWhite),
@@ -212,6 +217,8 @@ func New() Theme {
 	t.HelpKey = lipgloss.NewStyle().Bold(true).Foreground(t.Accent)
 	t.HelpDesc = lipgloss.NewStyle().Foreground(t.FgDim)
 	t.Footer = lipgloss.NewStyle().Foreground(t.FgDim)
+	t.FooterKey = lipgloss.NewStyle().Bold(true).Reverse(true).Padding(0, 1)
+	t.FooterDesc = lipgloss.NewStyle().Foreground(t.FgDim)
 
 	return t
 }

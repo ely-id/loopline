@@ -58,7 +58,7 @@ func TestPragmasApplied(t *testing.T) {
 
 func TestOpenCreatesDatabaseFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "routine.db")
+	path := filepath.Join(dir, "loopline.db")
 
 	s, err := Open(path)
 	if err != nil {
@@ -79,7 +79,7 @@ func TestDefaultPathUsesXDGDataHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultPath: %v", err)
 	}
-	want := filepath.Join(dir, "routine-tui", "routine.db")
+	want := filepath.Join(dir, "loopline", "loopline.db")
 	if path != want {
 		t.Errorf("DefaultPath() = %q, want %q", path, want)
 	}
@@ -102,7 +102,7 @@ func TestDefaultPathFallsBackToHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultPath: %v", err)
 	}
-	want := filepath.Join(dir, ".local", "share", "routine-tui", "routine.db")
+	want := filepath.Join(dir, ".local", "share", "loopline", "loopline.db")
 	if path != want {
 		t.Errorf("DefaultPath() = %q, want %q", path, want)
 	}

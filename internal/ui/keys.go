@@ -1,71 +1,98 @@
 package ui
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+)
 
-// handleKey dispatches a key press when no modal is open. Bindings follow
-// SPEC.md exactly; h/j/k/l are added as vim-style aliases.
+var appKeys = struct {
+	NextPanel, PreviousPanel key.Binding
+	Up, Down                 key.Binding
+	Enter, Back              key.Binding
+	Edit, Toggle, Delete     key.Binding
+	PreviousMonth, NextMonth key.Binding
+	Help, Quit               key.Binding
+}{
+	NextPanel:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "panel")),
+	PreviousPanel: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous panel")),
+	Up:            key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "previous item")),
+	Down:          key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "next item")),
+	Enter:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+	Back:          key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "menu")),
+	Edit:          key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+	Toggle:        key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "toggle")),
+	Delete:        key.NewBinding(key.WithKeys("delete"), key.WithHelp("del", "delete")),
+	PreviousMonth: key.NewBinding(key.WithKeys("<", "["), key.WithHelp("</[", "previous month")),
+	NextMonth:     key.NewBinding(key.WithKeys(">", "]"), key.WithHelp(">/]", "next month")),
+	Help:          key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+	Quit:          key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
+}
+
+// handleKey dispatches a key press when no modal is open. Header mode owns
+// global panel selection; panel mode owns vertical local navigation.
 func (m *Root) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.help {
-		switch msg.String() {
-		case "esc", "?":
+		switch {
+		case key.Matches(msg, appKeys.Back), key.Matches(msg, appKeys.Help):
 			m.help = false
 		}
 		return m, nil
 	}
 
-	switch msg.String() {
-	case "q":
+	switch {
+	case key.Matches(msg, appKeys.Quit):
 		return m, tea.Quit
-	case "?":
+	case key.Matches(msg, appKeys.Help):
 		m.help = true
 		return m, nil
-	case "left", "h":
-		m.moveColumn(-1)
+	case m.navigation == NavigationHeader && key.Matches(msg, appKeys.NextPanel):
+		m.moveGlobal(1)
 		return m, nil
-	case "right", "l":
-		m.moveColumn(1)
+	case m.navigation == NavigationHeader && key.Matches(msg, appKeys.PreviousPanel):
+		m.moveGlobal(-1)
 		return m, nil
-	case "tab":
-		m.moveBlock(1)
+	case m.navigation == NavigationHeader && key.Matches(msg, appKeys.Enter):
+		m.navigation = NavigationPanel
+		m.clampFocus()
 		return m, nil
-	case "shift+tab":
-		m.moveBlock(-1)
+	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.Back):
+		m.navigation = NavigationHeader
 		return m, nil
-	case "up", "k":
-		m.moveItem(-1)
+	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.Up):
+		m.moveLocal(-1)
 		return m, nil
-	case "down", "j":
-		m.moveItem(1)
+	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.Down):
+		m.moveLocal(1)
 		return m, nil
-	case "enter":
+	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.Enter):
 		if m.pending {
 			return m, nil // a mutation is already in flight; drop this activate
 		}
 		return m.activate()
-	case "e":
+	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.Edit):
 		if m.pending {
 			return m, nil
 		}
 		return m.editSelected()
-	case "t":
+	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.Toggle):
 		m.toggleExpansion()
 		return m, nil
-	case "delete":
+	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.Delete):
 		if m.pending {
 			return m, nil
 		}
 		return m.deleteSelected()
-	case "<", "[":
+	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.PreviousMonth):
 		return m, m.stepCalendar(-1)
-	case ">", "]":
+	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.NextMonth):
 		return m, m.stepCalendar(1)
 	}
 	return m, nil
 }
 
 func (m *Root) onCalendar() bool {
-	return (m.focus.Column == ColOverview && m.focus.Block == OverviewCompletion) ||
-		(m.focus.Column == ColReminders && m.focus.Block == RemindersCalendar)
+	return m.navigation == NavigationPanel && ((m.focus.Column == ColOverview && m.focus.Block == OverviewCompletion) ||
+		(m.focus.Column == ColReminders && m.focus.Block == RemindersCalendar))
 }
 
 // stepCalendar handles </> (aliased to [/]) on either calendar block.
@@ -119,14 +146,22 @@ func (m *Root) activateToday() (tea.Model, tea.Cmd) {
 	if group < 0 || group >= len(groups) {
 		return m, nil
 	}
+	if groups[group].RoutineID != nil && m.focus.Item == 0 {
+		m.toggleExpansion()
+		return m, nil
+	}
 	if m.routineCollapsed(groups[group]) {
 		return m, nil
 	}
 	items := groups[group].Items
-	if m.focus.Item < 0 || m.focus.Item >= len(items) {
+	itemIndex := m.focus.Item
+	if groups[group].RoutineID != nil {
+		itemIndex--
+	}
+	if itemIndex < 0 || itemIndex >= len(items) {
 		return m, nil
 	}
-	return m, m.toggleHabitCmd(items[m.focus.Item].Habit.ID)
+	return m, m.toggleHabitCmd(items[itemIndex].Habit.ID)
 }
 
 // toggleExpansion changes presentation state only. Routine expansion applies

@@ -12,10 +12,9 @@ import (
 	"loopline/internal/theme"
 )
 
-// reminderChrome is the number of non-list rows at a given month height. The
-// old permanently reserved note line is gone; details now live inside the
-// windowed list only when explicitly expanded.
-func reminderChrome(calendarWeeks int) int { return 9 + calendarWeeks }
+// reminderChrome is the number of non-list rows at a given month height,
+// including the bottom-anchored three-line Year block.
+func reminderChrome(calendarWeeks int) int { return 11 + calendarWeeks }
 
 // sortedReminders returns the reminders Store.Reminders handed back,
 // reordered for display: reminders still due (in date order, so an overdue
@@ -37,13 +36,11 @@ func (m *Root) sortedReminders() []domain.Reminder {
 // renderReminders builds the time/events column: action, conventional month
 // calendar, and a chronological list with optional inline details.
 func (m *Root) renderReminders(width, height int) string {
-	header := m.columnTitle(ColReminders, theme.IconReminders+" Reminders")
-
-	focusedActions := m.focus.Column == ColReminders && m.focus.Block == RemindersActions
+	focusedActions := m.panelFocused(ColReminders) && m.focus.Block == RemindersActions
 	action := m.renderActionLine("Add reminder", focusedActions && m.focus.Item == 0)
 
 	sorted := m.sortedReminders()
-	focusedList := m.focus.Column == ColReminders && m.focus.Block == RemindersList
+	focusedList := m.panelFocused(ColReminders) && m.focus.Block == RemindersList
 
 	listTitleStyle := m.theme.BlockTitle
 	if focusedList {
@@ -59,12 +56,12 @@ func (m *Root) renderReminders(width, height int) string {
 	}
 	body = padLinesTo(body, listHeight)
 
-	return header + "\n\n" + action + "\n\n" + m.renderReminderCalendar(width) + "\n\n" + listHeader + "\n" + body
+	return action + "\n\n" + m.renderReminderCalendar(width) + "\n\n" + listHeader + "\n" + body + "\n\n" + m.renderYearProgress(width)
 }
 
 func (m *Root) renderReminderCalendar(width int) string {
 	title := m.theme.BlockTitle
-	if m.focus.Column == ColReminders && m.focus.Block == RemindersCalendar {
+	if m.panelFocused(ColReminders) && m.focus.Block == RemindersCalendar {
 		title = m.theme.BlockTitleOn
 	}
 
@@ -72,7 +69,7 @@ func (m *Root) renderReminderCalendar(width int) string {
 	lines := []string{
 		title.Render(theme.IconCalendar + " Calendar"),
 		m.theme.Dim.Render(centeredLine(calendarMonthLabel(cal), width)),
-		m.theme.Dim.Render(calendarGridRow(width, 2, []string{"Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"})),
+		m.theme.Dim.Render(calendarGridRow(width, 2, []string{"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"})),
 	}
 	for _, week := range cal.Weeks {
 		cells := make([]string, len(week))

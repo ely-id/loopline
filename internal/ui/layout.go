@@ -2,12 +2,18 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"loopline/internal/theme"
 )
+
+// looplineASCII is embedded from Reference/ascii-loopline.txt. Runtime
+// rendering never depends on the development-only reference file.
+const looplineASCII = "┓      ┓•    \n┃┏┓┏┓┏┓┃┓┏┓┏┓\n┗┗┛┗┛┣┛┗┗┛┗┗ \n     ┛       "
 
 // View implements tea.Model.
 func (m *Root) View() tea.View {
@@ -27,9 +33,11 @@ func (m *Root) View() tea.View {
 		return tea.NewView(m.renderLoading())
 	}
 
-	body := m.renderColumns()
+	header := m.renderHeader()
 	footer := m.renderFooter()
-	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, body, footer))
+	bodyHeight := max(m.height-lipgloss.Height(header)-lipgloss.Height(footer), 1)
+	body := m.renderColumns(bodyHeight)
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, body, footer))
 }
 
 // columnWidths gives the execution-heavy Today column modestly more room.
@@ -61,9 +69,8 @@ func columnWidths(total int) [3]int {
 	return w
 }
 
-func (m *Root) renderColumns() string {
+func (m *Root) renderColumns(bodyHeight int) string {
 	outer := columnWidths(m.width)
-	bodyHeight := m.height - 1 // one footer line: hints or status
 	innerHeight := max(bodyHeight-2, 1)
 
 	text := [3]int{}
@@ -75,7 +82,7 @@ func (m *Root) renderColumns() string {
 		text[i] = tw
 	}
 
-	col0 := m.styledColumn(ColOverview, outer[0], bodyHeight, m.renderOverview(text[0]))
+	col0 := m.styledColumn(ColOverview, outer[0], bodyHeight, m.renderOverview(text[0], innerHeight))
 	col1 := m.styledColumn(ColToday, outer[1], bodyHeight, m.renderToday(text[1], innerHeight))
 	col2 := m.styledColumn(ColReminders, outer[2], bodyHeight, m.renderReminders(text[2], innerHeight))
 
@@ -100,33 +107,130 @@ func (m *Root) renderColumns() string {
 // exactly the text width and inner height renderColumns computes.
 func (m *Root) styledColumn(col, outerWidth, outerHeight int, content string) string {
 	style := m.theme.Column
-	if m.focus.Column == col {
+	if m.panelFocused(col) {
 		style = m.theme.ColumnFocused
 	}
 	style = style.Width(outerWidth).Height(outerHeight).MaxWidth(outerWidth).MaxHeight(outerHeight)
 	return style.Render(content)
 }
 
+func (m *Root) renderHeader() string {
+	nav := m.renderHeaderNavigation(false)
+	fullIdentity := lipgloss.JoinHorizontal(
+		lipgloss.Center,
+		m.theme.HeaderBrand.Render(theme.IconLoop),
+		"  ",
+		m.theme.HeaderBrand.Render(looplineASCII),
+	)
+	full := lipgloss.JoinHorizontal(lipgloss.Center, fullIdentity, "   ", nav)
+	if m.height >= 40 && lipgloss.Width(full)+4 <= m.width {
+		return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, full)
+	}
+
+	textIdentity := m.theme.HeaderBrand.Render(theme.IconLoop + "  loopline")
+	text := lipgloss.JoinHorizontal(lipgloss.Center, textIdentity, "   ", nav)
+	if lipgloss.Width(text)+2 <= m.width {
+		return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, text)
+	}
+
+	minimal := lipgloss.JoinHorizontal(
+		lipgloss.Center,
+		m.theme.HeaderBrand.Render(theme.IconLoop),
+		"  ",
+		m.renderHeaderNavigation(true),
+	)
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, ansi.Truncate(minimal, m.width, ""))
+}
+
+func (m *Root) renderHeaderNavigation(compact bool) string {
+	labels := [numColumns]string{
+		theme.IconOverview + " OVERVIEW",
+		theme.IconHabits + " HABITS",
+		theme.IconReminders + " REMINDERS",
+	}
+	if compact {
+		labels = [numColumns]string{theme.IconOverview, theme.IconHabits, theme.IconReminders}
+	}
+	parts := make([]string, 0, numColumns*2-1)
+	for col, label := range labels {
+		style := m.theme.HeaderItem
+		if m.focus.Column == col {
+			if m.navigation == NavigationHeader {
+				style = m.theme.HeaderSelected
+			} else {
+				style = m.theme.HeaderActive
+			}
+		}
+		parts = append(parts, style.Render(label))
+		if col < numColumns-1 {
+			parts = append(parts, m.theme.Dim.Render(" │ "))
+		}
+	}
+	return strings.Join(parts, "")
+}
+
 func (m *Root) renderFooter() string {
 	if m.status != "" {
-		return m.theme.ReminderOverdue.MaxWidth(m.width).Render(m.status)
+		status := m.theme.ReminderOverdue.Render(ansi.Truncate(m.status, m.width, "…"))
+		return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, status)
 	}
-	hints := theme.IconLoop + "  ←→ col  tab block  ↑↓ item  enter act"
-	editable := m.editableSelection().valid()
-	if editable {
-		hints += "  e edit"
+	type hint struct{ key, description string }
+	var hints []hint
+	if m.navigation == NavigationHeader {
+		hints = []hint{{"tab", "panel"}, {"enter", "open"}, {"?", "help"}, {"q", "quit"}}
+	} else {
+		hints = []hint{{"↑↓", "item"}}
+		if m.primaryActionAvailable() {
+			hints = append(hints, hint{"enter", "act"})
+		}
+		if m.editableSelection().valid() {
+			hints = append(hints, hint{"e", "edit"})
+		}
+		if expansion := m.expansionHint(); expansion != "" {
+			hints = append(hints, hint{"t", expansion})
+		}
+		if m.editableSelection().valid() {
+			hints = append(hints, hint{"del", "delete"})
+		}
+		if m.onCalendar() {
+			hints = append(hints, hint{"<>", "month"})
+		}
+		hints = append(hints, hint{"esc", "menu"}, hint{"?", "help"}, hint{"q", "quit"})
 	}
-	if expansion := m.expansionHint(); expansion != "" {
-		hints += "  t " + expansion
+
+	render := func(items []hint) string {
+		parts := make([]string, len(items))
+		for i, item := range items {
+			parts[i] = m.theme.FooterKey.Render(item.key) + " " + m.theme.FooterDesc.Render(item.description)
+		}
+		return strings.Join(parts, "  ")
 	}
-	if editable {
-		hints += "  Delete delete"
+	for len(hints) > 2 && lipgloss.Width(render(hints)) > m.width {
+		// Preserve the navigation pair and Esc; progressively drop the least
+		// essential trailing discovery/action hints at constrained widths.
+		remove := len(hints) - 2
+		if hints[remove].key == "esc" {
+			remove--
+		}
+		hints = append(hints[:remove], hints[remove+1:]...)
 	}
-	if m.onCalendar() {
-		hints += "  </> month"
+	content := ansi.Truncate(render(hints), m.width, "")
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, content)
+}
+
+func (m *Root) primaryActionAvailable() bool {
+	if m.navigation != NavigationPanel {
+		return false
 	}
-	hints += "  ? help  q quit"
-	return m.theme.Footer.MaxWidth(m.width).Render(hints)
+	switch m.focus.Column {
+	case ColToday:
+		return m.focus.Block == TodayActions || m.editableSelection().valid()
+	case ColReminders:
+		return m.focus.Block == RemindersActions ||
+			(m.focus.Block == RemindersList && m.editableSelection().valid())
+	default:
+		return false
+	}
 }
 
 func (m *Root) renderMinSize() string {

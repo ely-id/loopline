@@ -1,7 +1,7 @@
 // Package app coordinates the application: it owns the use cases, the storage
 // contract and the read models handed to the UI.
 //
-// Dependency direction is cmd/routine -> ui -> app -> domain, with
+// Dependency direction is cmd/loopline -> ui -> app -> domain, with
 // internal/store implementing the Store interface declared here. app never
 // imports ui or store.
 package app

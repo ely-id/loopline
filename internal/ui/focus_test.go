@@ -8,16 +8,13 @@ import (
 	"loopline/internal/theme"
 )
 
-// rootWithGroups builds a bare Root (no backend, no bubbletea) with a
-// snapshot holding n habit groups of the given sizes, for exercising focus
-// math in isolation.
 func rootWithGroups(sizes ...int) *Root {
-	r := &Root{theme: theme.New()}
+	r := &Root{theme: theme.New(), navigation: NavigationPanel}
 	groups := make([]app.HabitGroup, len(sizes))
 	for i, n := range sizes {
 		items := make([]app.HabitItem, n)
 		for j := range items {
-			items[j] = app.HabitItem{Habit: domain.Habit{ID: int64(i*100 + j), Title: "h"}}
+			items[j] = app.HabitItem{Habit: domain.Habit{ID: int64(i*100 + j + 1), Title: "h"}}
 		}
 		groups[i] = app.HabitGroup{Title: "g", Items: items}
 	}
@@ -25,100 +22,105 @@ func rootWithGroups(sizes ...int) *Root {
 	return r
 }
 
-func TestBlockCountOverviewIsFixed(t *testing.T) {
-	r := rootWithGroups()
+func TestBlockCountsIncludeWeeklyAndEveryHabitGroup(t *testing.T) {
+	r := rootWithGroups(3, 0, 2)
 	if got := r.blockCount(ColOverview); got != numOverviewBlocks {
 		t.Fatalf("blockCount(overview) = %d, want %d", got, numOverviewBlocks)
+	}
+	if got := r.blockCount(ColToday); got != 4 {
+		t.Fatalf("blockCount(habits) = %d, want Add + 3 groups", got)
 	}
 	if got := r.blockCount(ColReminders); got != numReminderBlocks {
 		t.Fatalf("blockCount(reminders) = %d, want %d", got, numReminderBlocks)
 	}
 }
 
-func TestBlockCountTodayTracksGroups(t *testing.T) {
-	r := rootWithGroups(3, 0, 2)
-	if got := r.blockCount(ColToday); got != 4 {
-		t.Fatalf("blockCount(today) = %d, want 4 (Add + 3 groups)", got)
+func TestRoutineHeaderIsAlwaysASelectableItem(t *testing.T) {
+	r := rootWithGroups()
+	id := int64(7)
+	r.snap.Today.Groups = []app.HabitGroup{{RoutineID: &id, Title: "Morning"}}
+	if got := r.itemCount(ColToday, 1); got != 1 {
+		t.Fatalf("expanded empty routine item count = %d, want its header", got)
 	}
-	if got := r.itemCount(ColToday, TodayActions); got != 2 {
-		t.Fatalf("itemCount(today,Add) = %d, want 2", got)
+	r.snap.Today.Groups[0].Items = []app.HabitItem{{Habit: domain.Habit{ID: 1, Title: "Water"}}}
+	if got := r.itemCount(ColToday, 1); got != 2 {
+		t.Fatalf("expanded routine item count = %d, want header + child", got)
 	}
-	if got := r.itemCount(ColToday, 1); got != 3 {
-		t.Fatalf("itemCount(today,1) = %d, want 3", got)
-	}
-	if got := r.itemCount(ColToday, 2); got != 0 {
-		t.Fatalf("itemCount(today,2) = %d, want 0", got)
+	r.collapsedRoutines = map[int64]bool{id: true}
+	if got := r.itemCount(ColToday, 1); got != 1 {
+		t.Fatalf("collapsed routine item count = %d, want header only", got)
 	}
 }
 
-func TestClampFocusHandlesTodayWithNoHabitGroups(t *testing.T) {
-	r := rootWithGroups() // Add block remains
-	r.focus = Focus{Column: ColToday, Block: 5, Item: 5}
+func TestClampFocusSkipsEmptyWeeklyBlock(t *testing.T) {
+	r := rootWithGroups()
+	r.focus = Focus{Column: ColOverview, Block: OverviewWeekly, Item: 8}
 	r.clampFocus()
-	if r.focus.Block != TodayActions || r.focus.Item != ActionAddRoutine {
-		t.Fatalf("clampFocus with only Add block = %+v, want Add Routine", r.focus)
+	if r.focus != (Focus{Column: ColOverview, Block: OverviewCompletion, Item: 0}) {
+		t.Fatalf("focus = %+v, want next selectable Completion block", r.focus)
 	}
 }
 
-func TestClampFocusPullsBackIntoRange(t *testing.T) {
+func TestClampFocusPullsBackAfterListShrinks(t *testing.T) {
 	r := rootWithGroups(2, 4)
 	r.focus = Focus{Column: ColToday, Block: 9, Item: 9}
 	r.clampFocus()
-	if r.focus.Block != 2 {
-		t.Fatalf("Block = %d, want 2 (last valid group block)", r.focus.Block)
-	}
-	if r.focus.Item != 3 {
-		t.Fatalf("Item = %d, want 3 (last valid item)", r.focus.Item)
+	if r.focus != (Focus{Column: ColToday, Block: 2, Item: 3}) {
+		t.Fatalf("focus = %+v, want last valid local item", r.focus)
 	}
 }
 
-func TestMoveColumnWrapsAndResets(t *testing.T) {
+func TestMoveGlobalWrapsAndResetsToFirstLocalTarget(t *testing.T) {
 	r := rootWithGroups(2)
-	r.focus = Focus{Column: ColOverview, Block: 2, Item: 1}
-
-	r.moveColumn(-1) // wrap left from overview -> reminders
-	if r.focus.Column != ColReminders {
-		t.Fatalf("Column = %d, want ColReminders", r.focus.Column)
+	r.navigation = NavigationHeader
+	r.focus = Focus{Column: ColOverview, Block: OverviewCompletion}
+	r.moveGlobal(-1)
+	if r.focus != (Focus{Column: ColReminders, Block: RemindersActions, Item: 0}) {
+		t.Fatalf("after reverse wrap focus = %+v", r.focus)
 	}
-	if r.focus.Block != 0 || r.focus.Item != 0 {
-		t.Fatalf("moveColumn did not reset block/item: %+v", r.focus)
-	}
-
-	r.moveColumn(1)
-	if r.focus.Column != ColOverview {
-		t.Fatalf("Column = %d, want ColOverview after wrap", r.focus.Column)
+	r.moveGlobal(1)
+	if r.focus != (Focus{Column: ColOverview, Block: OverviewLifetime, Item: 0}) {
+		t.Fatalf("after forward wrap focus = %+v", r.focus)
 	}
 }
 
-func TestMoveBlockWrapsWithinColumn(t *testing.T) {
+func TestMoveLocalCrossesLogicalBlockBoundariesWithoutWrapping(t *testing.T) {
+	r := rootWithGroups(2)
+	r.focus = Focus{Column: ColToday, Block: TodayActions, Item: ActionAddRoutine}
+	r.moveLocal(1)
+	if r.focus != (Focus{Column: ColToday, Block: 1, Item: 0}) {
+		t.Fatalf("down across Add/group boundary = %+v", r.focus)
+	}
+	r.moveLocal(1)
+	if r.focus != (Focus{Column: ColToday, Block: 1, Item: 1}) {
+		t.Fatalf("down within group = %+v", r.focus)
+	}
+	r.moveLocal(1)
+	if r.focus.Item != 1 {
+		t.Fatalf("down past panel end wrapped unexpectedly: %+v", r.focus)
+	}
+	r.moveLocal(-1)
+	r.moveLocal(-1)
+	if r.focus != (Focus{Column: ColToday, Block: TodayActions, Item: ActionAddRoutine}) {
+		t.Fatalf("up across group/Add boundary = %+v", r.focus)
+	}
+}
+
+func TestLocalPositionsSkipEmptyBlocks(t *testing.T) {
 	r := rootWithGroups()
-	r.focus.Column = ColOverview
-
-	r.moveBlock(-1) // from block 0, wrap to last block
-	if r.focus.Block != numOverviewBlocks-1 {
-		t.Fatalf("Block = %d, want %d", r.focus.Block, numOverviewBlocks-1)
+	r.snap.Weekly.Rows = nil
+	positions := r.localPositions(ColOverview)
+	want := []Focus{
+		{Column: ColOverview, Block: OverviewLifetime},
+		{Column: ColOverview, Block: OverviewCompletion},
 	}
-
-	r.moveBlock(1)
-	if r.focus.Block != 0 {
-		t.Fatalf("Block = %d, want 0 after wrapping forward", r.focus.Block)
+	if len(positions) != len(want) {
+		t.Fatalf("positions = %+v, want %+v", positions, want)
 	}
-}
-
-func TestMoveItemClampsWithoutWrap(t *testing.T) {
-	r := rootWithGroups(3)
-	r.focus = Focus{Column: ColToday, Block: 1, Item: 0}
-
-	r.moveItem(-1)
-	if r.focus.Item != 0 {
-		t.Fatalf("Item = %d, want 0 (clamped, no wrap)", r.focus.Item)
-	}
-
-	r.moveItem(1)
-	r.moveItem(1)
-	r.moveItem(1) // one past the end
-	if r.focus.Item != 2 {
-		t.Fatalf("Item = %d, want 2 (clamped at last index)", r.focus.Item)
+	for i := range want {
+		if positions[i] != want[i] {
+			t.Fatalf("positions[%d] = %+v, want %+v", i, positions[i], want[i])
+		}
 	}
 }
 

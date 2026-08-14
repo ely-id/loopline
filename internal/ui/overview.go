@@ -5,31 +5,121 @@ import (
 	"strings"
 
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"loopline/internal/app"
 	"loopline/internal/domain"
 	"loopline/internal/theme"
 )
 
-// renderOverview keeps the history column deliberately compact: lifetime
-// statistics, authoritative monthly completion, then temporal orientation.
-func (m *Root) renderOverview(width int) string {
-	return strings.Join([]string{
-		m.columnTitle(ColOverview, theme.IconLoop+" loopline · Overview"),
-		"",
-		m.renderLifetime(width),
-		"",
-		m.renderCompletionCalendar(width),
-		"",
-		m.renderYearProgress(width),
-	}, "\n")
+// renderOverview keeps Lifetime above a bounded Weekly Overview viewport and
+// anchors Completion at the bottom of the available panel height.
+func (m *Root) renderOverview(width, height int) string {
+	lifetime := m.renderLifetime(width)
+	completion := m.renderCompletionCalendar(width)
+	fixed := lipgloss.Height(lifetime) + lipgloss.Height(completion) + 2
+	weeklyHeight := max(height-fixed, 1)
+	weekly := m.renderWeeklyOverview(width, weeklyHeight)
+	return strings.Join([]string{lifetime, "", weekly, "", completion}, "\n")
 }
 
 func (m *Root) overviewBlockTitle(block int) lipgloss.Style {
-	if m.focus.Column == ColOverview && m.focus.Block == block {
+	if m.panelFocused(ColOverview) && m.focus.Block == block {
 		return m.theme.BlockTitleOn
 	}
 	return m.theme.BlockTitle
+}
+
+func (m *Root) renderWeeklyOverview(width, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	rows := m.snap.Weekly.Rows
+	titleText := theme.IconWeekly + " Weekly Overview"
+	if height == 1 {
+		return m.overviewBlockTitle(OverviewWeekly).Render(ansi.Truncate(titleText, width, "…"))
+	}
+	bodyHeight := max(height-2, 0) // title + weekday header
+	if len(rows) > bodyHeight {
+		titleText += "  " + m.theme.Dim.Render("↕")
+	}
+	title := m.overviewBlockTitle(OverviewWeekly).Render(titleText)
+	header := m.renderWeeklyHeader(width)
+
+	lines := make([]string, len(rows))
+	for i, row := range rows {
+		selected := m.panelFocused(ColOverview) && m.focus.Block == OverviewWeekly && m.focus.Item == i
+		lines[i] = m.renderWeeklyRow(width, row, selected)
+	}
+	focus := -1
+	if m.panelFocused(ColOverview) && m.focus.Block == OverviewWeekly {
+		focus = m.focus.Item
+	}
+	if height == 2 {
+		return title + "\n" + header
+	}
+	body := ""
+	if len(lines) == 0 {
+		body = ansi.Truncate(m.theme.Muted.Render("No habits scheduled this week."), width, "…")
+	} else {
+		body = strings.Join(windowAround(lines, bodyHeight, focus), "\n")
+	}
+	content := strings.Join([]string{title, header, body}, "\n")
+	return padLinesTo(content, height)
+}
+
+func weeklyGridLayout(width int) (nameWidth int, labels []string) {
+	labels = []string{"S", "M", "T", "W", "T", "F", "S"}
+	gridWidth := 13 // seven one-cell labels with one-cell gaps
+	if width >= 35 {
+		labels = []string{"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"}
+		gridWidth = 20
+	}
+	return max(width-gridWidth-1, 1), labels
+}
+
+func (m *Root) renderWeeklyHeader(width int) string {
+	nameWidth, labels := weeklyGridLayout(width)
+	cells := make([]string, len(labels))
+	for i, label := range labels {
+		style := m.theme.Dim
+		if m.snap.Weekly.Start.AddDays(i).Equal(m.today) {
+			style = style.Bold(true).Underline(true)
+		}
+		cells[i] = style.Render(label)
+	}
+	return strings.Repeat(" ", nameWidth+1) + strings.Join(cells, " ")
+}
+
+func (m *Root) renderWeeklyRow(width int, row app.WeeklyHabit, selected bool) string {
+	nameWidth, labels := weeklyGridLayout(width)
+	name := ansi.Truncate(row.Habit.Title, nameWidth, "…")
+	name = padTo(name, nameWidth)
+	cells := make([]string, len(row.Days))
+	for i, day := range row.Days {
+		glyph := " "
+		style := m.theme.Dim
+		switch {
+		case day.Completed:
+			glyph, style = "✓", m.theme.CheckDone
+		case day.Scheduled && day.IsFuture:
+			glyph = "·"
+		case day.Scheduled:
+			glyph, style = "·", m.theme.CheckPending
+		}
+		if day.IsToday {
+			style = style.Bold(true).Underline(true)
+		}
+		if lipgloss.Width(labels[i]) == 2 {
+			glyph = " " + glyph
+		}
+		cells[i] = style.Render(glyph)
+	}
+	line := name + " " + strings.Join(cells, " ")
+	if selected {
+		return m.theme.ItemSelected.Render(padTo(line, width))
+	}
+	return line
 }
 
 func (m *Root) renderLifetime(width int) string {
@@ -48,47 +138,95 @@ func (m *Root) renderCompletionCalendar(width int) string {
 	lines := []string{
 		m.overviewBlockTitle(OverviewCompletion).Render(theme.IconCompletion + " Completion"),
 		m.theme.Dim.Render(centeredLine(calendarMonthLabel(cal), width)),
-		m.theme.Dim.Render(calendarGridRow(width, 3, []string{"Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"})),
 	}
 
+	var cells []string
 	for _, week := range cal.Weeks {
-		cells := make([]string, len(week))
-		for i, day := range week {
-			cells[i] = m.completionDayCell(day)
+		for _, day := range week {
+			if day.InMonth {
+				cells = append(cells, m.completionDayCell(day))
+			}
 		}
-		lines = append(lines, calendarGridRow(width, 3, cells))
 	}
+	lines = append(lines, justifiedCompletionRows(cells, width)...)
 	return strings.Join(lines, "\n")
+}
+
+// justifiedCompletionRows renders chronological month days as a compact flow
+// without a weekday axis. Rows are balanced before their inter-cell spacing is
+// expanded, avoiding a nearly empty final row while still using the available
+// width deliberately.
+func justifiedCompletionRows(cells []string, width int) []string {
+	if len(cells) == 0 || width <= 0 {
+		return nil
+	}
+	maxPerRow := max((width+1)/2, 1) // at least one cell of separation
+	rowCount := (len(cells) + maxPerRow - 1) / maxPerRow
+	base, extra := len(cells)/rowCount, len(cells)%rowCount
+
+	rows := make([]string, 0, rowCount)
+	start := 0
+	for row := 0; row < rowCount; row++ {
+		count := base
+		if row < extra {
+			count++
+		}
+		rows = append(rows, justifyCompletionRow(cells[start:start+count], width))
+		start += count
+	}
+	return rows
+}
+
+func justifyCompletionRow(cells []string, width int) string {
+	if len(cells) == 0 {
+		return ""
+	}
+	if len(cells) == 1 {
+		return centeredLine(cells[0], width)
+	}
+
+	cellsWidth := 0
+	for _, cell := range cells {
+		cellsWidth += lipgloss.Width(cell)
+	}
+	space := max(width-cellsWidth, len(cells)-1)
+	baseGap, extra := space/(len(cells)-1), space%(len(cells)-1)
+
+	var row strings.Builder
+	for i, cell := range cells {
+		row.WriteString(cell)
+		if i == len(cells)-1 {
+			continue
+		}
+		gap := baseGap
+		if i < extra {
+			gap++
+		}
+		row.WriteString(strings.Repeat(" ", gap))
+	}
+	return row.String()
 }
 
 func calendarMonthLabel(cal app.CalendarMonth) string {
 	return fmt.Sprintf("< %s %d >", cal.Month.String()[:3], cal.Year)
 }
 
-// completionDayCell renders a three-cell-wide day (two date cells plus one
-// density glyph). Future days and days with nothing scheduled stay neutral;
-// neither is incorrectly presented as missed work.
+// completionDayCell renders exactly one requested U+F0C8 square for an
+// active-month day. Adjacent-month positions remain visually empty.
 func (m *Root) completionDayCell(day app.CalendarDay) string {
 	if !day.InMonth {
-		return "   "
+		return ""
 	}
 
 	stage := completionStage(day.Summary)
 	if day.IsFuture {
 		stage = theme.CompletionStageNone
 	}
-	numberStyle := m.completionDayNumberStyle(day, stage)
-	number := numberStyle.Render(fmt.Sprintf("%2d", day.Date.Day))
-	return number + m.theme.CompletionStyles[stage].Render(string(theme.CompletionGlyphs[stage]))
+	return m.completionDayStyle(day, stage).Render(theme.HeatmapSquare)
 }
 
-func (m *Root) completionDayNumberStyle(day app.CalendarDay, stage theme.CompletionStage) lipgloss.Style {
+func (m *Root) completionDayStyle(day app.CalendarDay, stage theme.CompletionStage) lipgloss.Style {
 	style := m.theme.CompletionStyles[stage]
-	if day.IsFuture {
-		style = m.theme.CalFuture
-	}
-	// Underlining is independent of the completion palette, so today remains
-	// identifiable at every completion stage without stealing the stage color.
 	if day.IsToday {
 		style = style.Bold(true).Underline(true)
 	}

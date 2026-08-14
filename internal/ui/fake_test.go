@@ -140,14 +140,32 @@ func (f *fakeBackend) Snapshot(_ context.Context, req app.SnapshotRequest) (app.
 	if len(ungrouped.Items) > 0 {
 		groups = append(groups, ungrouped)
 	}
-	for _, g := range tmp {
-		if len(g.Items) > 0 {
-			groups = append(groups, g)
+	groups = append(groups, tmp...)
+
+	weekStart := sundayWeekStartForTest(today)
+	weekly := app.WeeklyOverview{Start: weekStart, End: weekStart.AddDays(6)}
+	for _, habit := range f.habits {
+		row := app.WeeklyHabit{Habit: habit}
+		include := false
+		for i := range row.Days {
+			d := weekStart.AddDays(i)
+			scheduled := habit.ScheduledOn(d)
+			row.Days[i] = app.WeeklyDay{
+				Date:      d,
+				Scheduled: scheduled,
+				Completed: scheduled && index[d][habit.ID],
+				IsToday:   d.Equal(today),
+				IsFuture:  d.After(today),
+			}
+			include = include || scheduled
+		}
+		if include {
+			weekly.Rows = append(weekly.Rows, row)
 		}
 	}
 
-	calStart := month.StartOfMonth().StartOfWeek()
-	calEnd := month.EndOfMonth().StartOfWeek().AddDays(6)
+	calStart := sundayWeekStartForTest(month.StartOfMonth())
+	calEnd := sundayWeekStartForTest(month.EndOfMonth()).AddDays(6)
 	var weeks [][]app.CalendarDay
 	for ws := calStart; !ws.After(calEnd); ws = ws.AddDays(7) {
 		week := make([]app.CalendarDay, 7)
@@ -200,6 +218,7 @@ func (f *fakeBackend) Snapshot(_ context.Context, req app.SnapshotRequest) (app.
 			Groups:  groups,
 			Summary: domain.SummarizeDay(f.habits, doneToday, today),
 		},
+		Weekly: weekly,
 		Overview: app.Overview{
 			CurrentStreak:    domain.CurrentStreak(summaries, today),
 			BestStreak:       domain.BestStreak(summaries),
@@ -212,6 +231,10 @@ func (f *fakeBackend) Snapshot(_ context.Context, req app.SnapshotRequest) (app.
 		Routines:  activeRoutines,
 	}
 	return snap, nil
+}
+
+func sundayWeekStartForTest(d domain.Date) domain.Date {
+	return d.AddDays(-int(d.Weekday()))
 }
 
 func (f *fakeBackend) ToggleHabit(_ context.Context, habitID int64) error {

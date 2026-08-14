@@ -21,9 +21,10 @@ type Root struct {
 	snap  app.Snapshot
 	ready bool // at least one Snapshot has been loaded
 
-	focus Focus
-	modal *modalState
-	help  bool
+	navigation NavigationMode
+	focus      Focus
+	modal      *modalState
+	help       bool
 
 	calMonth domain.Date // zero means "the month containing today"
 

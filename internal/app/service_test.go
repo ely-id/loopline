@@ -356,7 +356,7 @@ func TestServiceSnapshotGroupsUngroupedFirstThenRoutinesInPosition(t *testing.T)
 	}
 }
 
-func TestServiceSnapshotOmitsEmptyRoutineGroups(t *testing.T) {
+func TestServiceSnapshotKeepsEmptyRoutineGroups(t *testing.T) {
 	ctx := context.Background()
 	store := newFakeStore()
 	clock := domain.NewFixedClock(domain.MustParseDate("2026-08-10"))
@@ -384,14 +384,62 @@ func TestServiceSnapshotOmitsEmptyRoutineGroups(t *testing.T) {
 		t.Fatalf("Snapshot: %v", err)
 	}
 
-	if _, ok := findGroup(snap.Today.Groups, "Empty"); ok {
-		t.Fatalf("empty routine group must be omitted from TodayView, got groups: %+v", snap.Today.Groups)
+	empty, ok := findGroup(snap.Today.Groups, "Empty")
+	if !ok {
+		t.Fatalf("empty routine group must remain visible in TodayView, got groups: %+v", snap.Today.Groups)
+	}
+	if empty.Scheduled != 0 || empty.Completed != 0 || len(empty.Items) != 0 {
+		t.Fatalf("empty routine group = %+v, want visible 0/0 group with no children", empty)
 	}
 	if _, ok := findGroup(snap.Today.Groups, "Morning"); !ok {
 		t.Fatalf("Morning group with a habit must be present, got groups: %+v", snap.Today.Groups)
 	}
-	if len(snap.Today.Groups) != 1 {
-		t.Fatalf("len(Groups) = %d, want 1 (only Morning)", len(snap.Today.Groups))
+	if len(snap.Today.Groups) != 2 {
+		t.Fatalf("len(Groups) = %d, want 2 (Empty and Morning)", len(snap.Today.Groups))
+	}
+}
+
+func TestServiceWeeklyOverviewUsesSundayFirstWeekAndExistingCompletionStates(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStore()
+	today := domain.MustParseDate("2026-08-12") // Wednesday
+	svc := New(store, domain.NewFixedClock(today))
+
+	dailyID, err := store.CreateHabit(ctx, domain.Habit{
+		Title: "Daily", Schedule: domain.DailySchedule(), CreatedOn: domain.MustParseDate("2026-08-09"),
+	})
+	if err != nil {
+		t.Fatalf("CreateHabit daily: %v", err)
+	}
+	mondayID, err := store.CreateHabit(ctx, domain.Habit{
+		Title: "Monday", Schedule: domain.Schedule{Kind: domain.ScheduleWeekdays, Weekdays: domain.WeekdaysOf(time.Monday)}, CreatedOn: domain.MustParseDate("2026-08-09"),
+	})
+	if err != nil {
+		t.Fatalf("CreateHabit Monday: %v", err)
+	}
+	completedAt := time.Date(2026, time.August, 12, 8, 0, 0, 0, time.UTC)
+	if err := store.SetCompletion(ctx, dailyID, today, true, completedAt); err != nil {
+		t.Fatalf("SetCompletion daily: %v", err)
+	}
+	if err := store.SetCompletion(ctx, mondayID, domain.MustParseDate("2026-08-10"), true, completedAt); err != nil {
+		t.Fatalf("SetCompletion Monday: %v", err)
+	}
+
+	snap, err := svc.Snapshot(ctx, SnapshotRequest{Month: today.AddMonths(-3)})
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if snap.Weekly.Start != domain.MustParseDate("2026-08-09") || snap.Weekly.End != domain.MustParseDate("2026-08-15") {
+		t.Fatalf("Weekly range = %s..%s, want Sunday-through-Saturday week", snap.Weekly.Start, snap.Weekly.End)
+	}
+	if len(snap.Weekly.Rows) != 2 {
+		t.Fatalf("Weekly rows = %+v, want both scheduled habits", snap.Weekly.Rows)
+	}
+	if !snap.Weekly.Rows[0].Days[3].Scheduled || !snap.Weekly.Rows[0].Days[3].Completed || !snap.Weekly.Rows[0].Days[3].IsToday {
+		t.Fatalf("daily Wednesday cell = %+v, want scheduled/completed/today", snap.Weekly.Rows[0].Days[3])
+	}
+	if !snap.Weekly.Rows[1].Days[1].Completed || snap.Weekly.Rows[1].Days[0].Scheduled {
+		t.Fatalf("Monday-only row has incorrect schedule/completion states: %+v", snap.Weekly.Rows[1].Days)
 	}
 }
 
@@ -664,11 +712,11 @@ func TestServiceCalendarWeeksAreFullSevenDayRows(t *testing.T) {
 		if len(week) != 7 {
 			t.Fatalf("week %d has %d days, want 7", i, len(week))
 		}
-		if week[0].Date.Weekday() != time.Monday {
-			t.Fatalf("week %d starts on %s, want Monday", i, week[0].Date.Weekday())
+		if week[0].Date.Weekday() != time.Sunday {
+			t.Fatalf("week %d starts on %s, want Sunday", i, week[0].Date.Weekday())
 		}
-		if week[6].Date.Weekday() != time.Sunday {
-			t.Fatalf("week %d ends on %s, want Sunday", i, week[6].Date.Weekday())
+		if week[6].Date.Weekday() != time.Saturday {
+			t.Fatalf("week %d ends on %s, want Saturday", i, week[6].Date.Weekday())
 		}
 	}
 	firstWeek := cal.Weeks[0]

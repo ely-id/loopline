@@ -64,7 +64,7 @@ func TestSpecRenderCalendarsProgressAndFocusedItemArePresent(t *testing.T) {
 
 			// Focus the last (30th) habit, buried at the bottom of a list
 			// long enough to require scrolling.
-			root.focus = Focus{Column: ColToday, Block: 1, Item: 29}
+			setPanelFocus(root, Focus{Column: ColToday, Block: 1, Item: 29})
 			content := stripANSI(root.View().Content)
 
 			if !strings.Contains(content, "Completion") || !strings.Contains(content, "Calendar") {
@@ -84,7 +84,7 @@ func TestSpecRenderCalendarsProgressAndFocusedItemArePresent(t *testing.T) {
 
 			// Now do the same check for the reminders column: focus the
 			// last (30th, chronologically furthest) reminder.
-			root.focus = Focus{Column: ColReminders, Block: RemindersList, Item: 29}
+			setPanelFocus(root, Focus{Column: ColReminders, Block: RemindersList, Item: 29})
 			content = stripANSI(root.View().Content)
 
 			focusedReminder := root.sortedReminders()[29].Title

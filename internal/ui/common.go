@@ -9,17 +9,6 @@ import (
 	"loopline/internal/domain"
 )
 
-// columnTitle renders a column header, emphasised when that column holds
-// focus. label is the column-specific text (may include live data such as
-// today's date).
-func (m *Root) columnTitle(col int, label string) string {
-	style := m.theme.ColumnTitle
-	if m.focus.Column == col {
-		style = m.theme.ColumnTitleOn
-	}
-	return style.Render(label)
-}
-
 // renderActionLine renders a single-item "button" row, such as "+ Add habit".
 func (m *Root) renderActionLine(label string, selected bool) string {
 	text := fmt.Sprintf("%s + %s", markerGlyph(selected), label)
@@ -27,11 +16,6 @@ func (m *Root) renderActionLine(label string, selected bool) string {
 		return m.theme.ItemSelected.Render(text)
 	}
 	return m.theme.Item.Render(text)
-}
-
-// weekdayLabel renders a date as "Mon, Jan 2".
-func weekdayLabel(d domain.Date) string {
-	return d.Time().Format("Mon, Jan 2")
 }
 
 // shortDate renders a date as "Jan 2".

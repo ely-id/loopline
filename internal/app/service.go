@@ -67,8 +67,8 @@ func (s *Service) Snapshot(ctx context.Context, req SnapshotRequest) (Snapshot, 
 		first = today
 	}
 
-	calStart := month.StartOfMonth().StartOfWeek()
-	calEnd := month.EndOfMonth().StartOfWeek().AddDays(6)
+	calStart := sundayWeekStart(month.StartOfMonth())
+	calEnd := sundayWeekStart(month.EndOfMonth()).AddDays(6)
 	from := earliest(first, calStart)
 	to := latest(today, calEnd)
 
@@ -85,6 +85,7 @@ func (s *Service) Snapshot(ctx context.Context, req SnapshotRequest) (Snapshot, 
 
 	snap := Snapshot{
 		Today:     s.todayView(habits, routines, index, today),
+		Weekly:    s.weeklyOverview(habits, index, today),
 		Calendar:  s.calendar(habits, index, reminderDays, month, today),
 		Reminders: reminders,
 		Routines:  activeRoutines(routines, today),
@@ -135,12 +136,7 @@ func (s *Service) todayView(habits []domain.Habit, routines []domain.Routine, in
 	if len(ungrouped.Items) > 0 {
 		out = append(out, ungrouped)
 	}
-	for _, g := range groups {
-		if len(g.Items) == 0 {
-			continue
-		}
-		out = append(out, g)
-	}
+	out = append(out, groups...)
 
 	return TodayView{
 		Date:    today,
@@ -149,13 +145,45 @@ func (s *Service) todayView(habits []domain.Habit, routines []domain.Routine, in
 	}
 }
 
-// calendar builds the Monday-first month grid.
+// weeklyOverview derives a Sunday-first habit matrix from the same
+// completion index as Today and Completion. A habit is included when it is
+// scheduled at least once during the current week, including a habit that was
+// archived partway through the week and therefore still has meaningful
+// history in an earlier cell.
+func (s *Service) weeklyOverview(habits []domain.Habit, index map[domain.Date]map[int64]bool, today domain.Date) WeeklyOverview {
+	start := sundayWeekStart(today)
+	weekly := WeeklyOverview{Start: start, End: start.AddDays(6)}
+	weekly.Rows = make([]WeeklyHabit, 0, len(habits))
+
+	for _, habit := range habits {
+		row := WeeklyHabit{Habit: habit}
+		include := false
+		for i := range row.Days {
+			d := start.AddDays(i)
+			scheduled := habit.ScheduledOn(d)
+			row.Days[i] = WeeklyDay{
+				Date:      d,
+				Scheduled: scheduled,
+				Completed: scheduled && index[d][habit.ID],
+				IsToday:   d.Equal(today),
+				IsFuture:  d.After(today),
+			}
+			include = include || scheduled
+		}
+		if include {
+			weekly.Rows = append(weekly.Rows, row)
+		}
+	}
+	return weekly
+}
+
+// calendar builds the Sunday-first month grid used by the Reminder Calendar.
 func (s *Service) calendar(habits []domain.Habit, index map[domain.Date]map[int64]bool, reminderDays map[domain.Date]bool, month, today domain.Date) CalendarMonth {
 	start := month.StartOfMonth()
 	end := month.EndOfMonth()
 
 	cal := CalendarMonth{Year: start.Year, Month: start.Month}
-	for weekStart := start.StartOfWeek(); !weekStart.After(end); weekStart = weekStart.AddDays(7) {
+	for weekStart := sundayWeekStart(start); !weekStart.After(end); weekStart = weekStart.AddDays(7) {
 		week := make([]CalendarDay, 7)
 		for i := range week {
 			d := weekStart.AddDays(i)
@@ -165,6 +193,12 @@ func (s *Service) calendar(habits []domain.Habit, index map[domain.Date]map[int6
 		cal.Weeks = append(cal.Weeks, week)
 	}
 	return cal
+}
+
+// sundayWeekStart is deliberately presentation-specific. Domain.Date's
+// StartOfWeek remains ISO/Monday-first for streak and Year calculations.
+func sundayWeekStart(d domain.Date) domain.Date {
+	return d.AddDays(-int(d.Weekday()))
 }
 
 func (s *Service) calendarDay(habits []domain.Habit, index map[domain.Date]map[int64]bool, reminderDays map[domain.Date]bool, d, today domain.Date) CalendarDay {
@@ -493,7 +527,7 @@ func (s *Service) DeleteReminder(ctx context.Context, id int64) error {
 	return nil
 }
 
-// EnsureToday writes the derived summary for the current date. cmd/routine
+// EnsureToday writes the derived summary for the current date. cmd/loopline
 // calls it at startup so a day with no interaction still has its snapshot.
 func (s *Service) EnsureToday(ctx context.Context) error {
 	return s.refreshSummary(ctx, s.clock.Today())

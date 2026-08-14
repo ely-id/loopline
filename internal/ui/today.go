@@ -11,15 +11,14 @@ import (
 	"loopline/internal/theme"
 )
 
-// todayChrome is the fixed content around the habit viewport: column title,
-// compact Add block, section spacing, and the bottom-pinned progress bar.
-const todayChrome = 8
+// todayChrome is the fixed content around the habit viewport: compact Add
+// block, section spacing, and the bottom-pinned progress bar.
+const todayChrome = 6
 
 // renderToday builds the whole "today" column: title, one visually separated
 // block per habit group (windowed to fit height so the focused habit is
 // always visible), then the day's progress bar pinned to the bottom.
 func (m *Root) renderToday(width, height int) string {
-	title := m.columnTitle(ColToday, fmt.Sprintf("%s Today — %s", theme.IconToday, weekdayLabel(m.snap.Today.Date)))
 	progress := m.renderDayProgress(width, m.snap.Today.Summary)
 	listHeight := max(height-todayChrome, 1)
 
@@ -33,11 +32,11 @@ func (m *Root) renderToday(width, height int) string {
 	// habit list with a gap styledColumn's own padding leaves beneath it.
 	body = padLinesTo(body, listHeight)
 
-	return title + "\n\n" + m.renderTodayActions() + "\n\n" + body + "\n\n" + progress
+	return m.renderTodayActions() + "\n\n" + body + "\n\n" + progress
 }
 
 func (m *Root) renderTodayActions() string {
-	focused := m.focus.Column == ColToday && m.focus.Block == TodayActions
+	focused := m.panelFocused(ColToday) && m.focus.Block == TodayActions
 	title := m.theme.BlockTitle
 	if focused {
 		title = m.theme.BlockTitleOn
@@ -58,7 +57,7 @@ func (m *Root) renderTodayActions() string {
 // currently in this column, so the caller can window the list around it.
 func (m *Root) todayLines(width int) (lines []string, focusLine int) {
 	focusLine = -1
-	focusedCol := m.focus.Column == ColToday
+	focusedCol := m.panelFocused(ColToday)
 
 	for gi, g := range m.snap.Today.Groups {
 		if gi > 0 {
@@ -77,8 +76,11 @@ func (m *Root) todayLines(width int) (lines []string, focusLine int) {
 					prefix = theme.GlyphCollapsed + " "
 				}
 			}
-			title := style.Render(fmt.Sprintf("%s%s  %d/%d", prefix, g.Title, g.Completed, g.Scheduled))
-			if focusedCol && m.focus.Block == block && m.routineCollapsed(g) {
+			selectedHeader := focusedCol && m.focus.Block == block && g.RoutineID != nil && m.focus.Item == 0
+			titleText := fmt.Sprintf("%s%s  %d/%d", prefix, g.Title, g.Completed, g.Scheduled)
+			title := style.Render(titleText)
+			if selectedHeader {
+				title = m.theme.ItemSelected.Render(padTo(titleText, width))
 				focusLine = len(lines)
 			}
 			lines = append(lines, wrapPhysical(title, width)...)
@@ -87,7 +89,11 @@ func (m *Root) todayLines(width int) (lines []string, focusLine int) {
 			continue
 		}
 		for ii, item := range g.Items {
-			selected := focusedCol && m.focus.Block == block && m.focus.Item == ii
+			focusItem := ii
+			if g.RoutineID != nil {
+				focusItem++ // item 0 is the routine header
+			}
+			selected := focusedCol && m.focus.Block == block && m.focus.Item == focusItem
 			itemLines := m.renderHabitLines(width, item, selected)
 			if selected {
 				focusLine = len(lines)

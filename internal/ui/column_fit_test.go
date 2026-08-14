@@ -90,7 +90,7 @@ func TestExpandedMultilineReminderNoteStaysWithinColumn(t *testing.T) {
 	m := New(backend)
 	m = send(t, m, tea.WindowSizeMsg{Width: MinWidth, Height: MinHeight})
 	m = step(t, m, m.Init())
-	m.focus = Focus{Column: ColReminders, Block: RemindersList, Item: 0}
+	setPanelFocus(m, Focus{Column: ColReminders, Block: RemindersList, Item: 0})
 	m = pressKey(t, m, "t")
 
 	out := assertViewFits(t, m, MinWidth, MinHeight, "multiline reminder note")

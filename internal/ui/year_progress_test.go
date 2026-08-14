@@ -49,3 +49,22 @@ func TestYearProgressFitsMinimumOverviewWidth(t *testing.T) {
 		}
 	}
 }
+
+func TestYearIsBottomAnchoredOnlyInReminders(t *testing.T) {
+	root := newReadyRoot(t, newRichBackend(domain.MustParseDate("2026-08-10")))
+	const width, height = 25, 29
+	reminders := stripANSI(root.renderReminders(width, height))
+	lines := strings.Split(reminders, "\n")
+	if len(lines) != height {
+		t.Fatalf("Reminders height = %d, want %d", len(lines), height)
+	}
+	wantYear := strings.Split(stripANSI(root.renderYearProgress(width)), "\n")
+	for i := range wantYear {
+		if lines[height-len(wantYear)+i] != wantYear[i] {
+			t.Fatalf("Year is not bottom anchored: tail=%q want=%q", lines[height-len(wantYear):], wantYear)
+		}
+	}
+	if strings.Contains(stripANSI(root.renderOverview(27, 29)), " Year") {
+		t.Fatal("Year remained duplicated in Overview")
+	}
+}

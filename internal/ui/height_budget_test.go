@@ -187,8 +187,8 @@ func TestLifetimeFitsBudgetAtMinColumnWidth(t *testing.T) {
 	root2.snap.Overview.DaysTracked = 777
 	root2.snap.Overview.LifetimePercent = 100
 
-	overviewLines := strings.Split(root2.renderOverview(overviewTextWidthAtMinWidth), "\n")
-	budget := MinHeight - 3 // one footer row + two column-border rows
+	overviewLines := strings.Split(root2.renderOverview(overviewTextWidthAtMinWidth, MinHeight-4), "\n")
+	budget := MinHeight - 4 // one header, one footer, two column-border rows
 	if len(overviewLines) > budget {
 		t.Fatalf("renderOverview produced %d lines at width %d, want <= %d (MinHeight=%d budget)", len(overviewLines), overviewTextWidthAtMinWidth, budget, MinHeight)
 	}
