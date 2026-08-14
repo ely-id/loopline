@@ -71,11 +71,11 @@ func columnWidths(total int) [3]int {
 
 func (m *Root) renderColumns(bodyHeight int) string {
 	outer := columnWidths(m.width)
-	innerHeight := max(bodyHeight-2, 1)
+	innerHeight := max(bodyHeight-m.theme.Column.GetVerticalFrameSize(), 1)
 
 	text := [3]int{}
 	for i, ow := range outer {
-		tw := ow - 4 // border (2) + padding (2)
+		tw := ow - m.theme.Column.GetHorizontalFrameSize()
 		if tw < 4 {
 			tw = 4
 		}
@@ -123,12 +123,11 @@ func (m *Root) renderHeader() string {
 		m.theme.HeaderBrand.Render(looplineASCII),
 	)
 	full := lipgloss.JoinHorizontal(lipgloss.Center, fullIdentity, "   ", nav)
-	if m.height >= 40 && lipgloss.Width(full)+4 <= m.width {
-		return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, full)
-	}
-
 	textIdentity := m.theme.HeaderBrand.Render(theme.IconLoop + "  loopline")
 	text := lipgloss.JoinHorizontal(lipgloss.Center, textIdentity, "   ", nav)
+	if m.fullHeaderHasRoom(full, text) && lipgloss.Width(full)+4 <= m.width {
+		return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, full)
+	}
 	if lipgloss.Width(text)+2 <= m.width {
 		return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, text)
 	}
@@ -140,6 +139,17 @@ func (m *Root) renderHeader() string {
 		m.renderHeaderNavigation(true),
 	)
 	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, ansi.Truncate(minimal, m.width, ""))
+}
+
+// fullHeaderHasRoom compares actual rendered heights and the real column
+// frame. The full logo is allowed only when it leaves the same usable panel
+// content height that the compact header leaves at the supported minimum.
+func (m *Root) fullHeaderHasRoom(full, compact string) bool {
+	footerHeight := lipgloss.Height(m.renderFooter())
+	frameHeight := m.theme.Column.GetVerticalFrameSize()
+	minimumContentHeight := MinHeight - lipgloss.Height(compact) - footerHeight - frameHeight
+	availableContentHeight := m.height - lipgloss.Height(full) - footerHeight - frameHeight
+	return availableContentHeight >= minimumContentHeight
 }
 
 func (m *Root) renderHeaderNavigation(compact bool) string {
@@ -192,7 +202,9 @@ func (m *Root) renderFooter() string {
 		if m.editableSelection().valid() {
 			hints = append(hints, hint{"del", "delete"})
 		}
-		if m.onCalendar() {
+		if m.onCompletionTimeline() {
+			hints = append(hints, hint{"←→", "history"})
+		} else if m.onCalendar() {
 			hints = append(hints, hint{"<>", "month"})
 		}
 		hints = append(hints, hint{"esc", "menu"}, hint{"?", "help"}, hint{"q", "quit"})

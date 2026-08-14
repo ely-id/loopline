@@ -28,6 +28,11 @@ type Root struct {
 
 	calMonth domain.Date // zero means "the month containing today"
 
+	// A zero completionEndWeek means Completion follows the current week.
+	// A non-zero value is the Sunday start of the viewport's last week selected
+	// by the user, and remains stable across ordinary renders and date changes.
+	completionEndWeek domain.Date
+
 	// Expansion is deliberately ephemeral presentation state. Routines are
 	// expanded by default; the map only records collapsed routine IDs. At
 	// most one reminder is expanded to keep its narrow column predictable.
@@ -61,6 +66,7 @@ func (m *Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.clampCompletionViewport()
 		if m.modal != nil {
 			return m.resizeModal()
 		}
@@ -118,6 +124,7 @@ func (m *Root) applySnapshot(snap app.Snapshot) {
 	m.status = ""
 	m.reconcileExpansion()
 	m.clampFocus()
+	m.clampCompletionViewport()
 }
 
 func (m *Root) reconcileExpansion() {

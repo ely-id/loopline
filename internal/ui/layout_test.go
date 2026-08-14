@@ -59,8 +59,8 @@ func TestColumnWidthsPrioritizeTodayAndSumExactly(t *testing.T) {
 	}
 }
 
-// TestOverviewContentFitsAtMinHeight pins the redesigned six-week completion
-// calendar against the real 29-row content budget at 96x33.
+// TestOverviewContentFitsAtMinHeight pins the continuous Completion timeline
+// against the real 29-row content budget at 96x33.
 func TestOverviewContentFitsAtMinHeight(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(sixWeekMonthToday))
 	if weeks := len(root.snap.Calendar.Weeks); weeks != 6 {
@@ -75,9 +75,9 @@ func TestOverviewContentFitsAtMinHeight(t *testing.T) {
 	}
 }
 
-// TestViewAtMinHeightRendersBothCalendarsUnclipped is the end-to-end 96x33
-// guard for the two new month views.
-func TestViewAtMinHeightRendersBothCalendarsUnclipped(t *testing.T) {
+// TestViewAtMinHeightRendersCompletionAndCalendarUnclipped is the end-to-end
+// 96x33 guard for the timeline and conventional calendar.
+func TestViewAtMinHeightRendersCompletionAndCalendarUnclipped(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(sixWeekMonthToday))
 	root = send(t, root, tea.WindowSizeMsg{Width: MinWidth, Height: MinHeight})
 

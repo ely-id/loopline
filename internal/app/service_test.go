@@ -632,7 +632,7 @@ func TestServiceDailySummariesStayConsistentWithCompletions(t *testing.T) {
 	assertConsistent("after archiving A")
 }
 
-// --- Monthly completion calendar semantics ----------------------------------
+// --- Completion history semantics -------------------------------------------
 
 func TestServiceCalendarDerivesHistoryFromHabitsAndCompletions(t *testing.T) {
 	ctx := context.Background()
@@ -681,6 +681,20 @@ func TestServiceCalendarDerivesHistoryFromHabitsAndCompletions(t *testing.T) {
 	}
 	if day.Summary.Scheduled != 2 || day.Summary.Completed != 2 || day.Summary.Percent() != 100 {
 		t.Fatalf("calendar summary = %+v, want authoritative 2/2 from habits+completions", day.Summary)
+	}
+	timelineIndex := fullDay.DaysSince(snap.Completion.Start)
+	if timelineIndex < 0 || timelineIndex >= len(snap.Completion.Days) {
+		t.Fatalf("Completion timeline is missing %s: start=%s days=%d", fullDay, snap.Completion.Start, len(snap.Completion.Days))
+	}
+	timelineDay := snap.Completion.Days[timelineIndex]
+	if timelineDay.Scheduled != 2 || timelineDay.Completed != 2 || timelineDay.Percent() != 100 {
+		t.Fatalf("timeline summary = %+v, want authoritative 2/2 from habits+completions", timelineDay)
+	}
+	if got, want := len(snap.Completion.Days), today.DaysSince(snap.Completion.Start)+1; got != want {
+		t.Fatalf("timeline has %d days, want exactly %d real dates through today", got, want)
+	}
+	if last := snap.Completion.Days[len(snap.Completion.Days)-1].Date; !last.Equal(today) {
+		t.Fatalf("timeline ends %s, want today %s (no future days)", last, today)
 	}
 
 	archiveDay, ok := findCalendarDay(snap.Calendar, archived)

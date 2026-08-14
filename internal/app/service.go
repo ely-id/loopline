@@ -84,14 +84,27 @@ func (s *Service) Snapshot(ctx context.Context, req SnapshotRequest) (Snapshot, 
 	}
 
 	snap := Snapshot{
-		Today:     s.todayView(habits, routines, index, today),
-		Weekly:    s.weeklyOverview(habits, index, today),
-		Calendar:  s.calendar(habits, index, reminderDays, month, today),
-		Reminders: reminders,
-		Routines:  activeRoutines(routines, today),
+		Today:      s.todayView(habits, routines, index, today),
+		Weekly:     s.weeklyOverview(habits, index, today),
+		Completion: s.completionTimeline(habits, index, first, today),
+		Calendar:   s.calendar(habits, index, reminderDays, month, today),
+		Reminders:  reminders,
+		Routines:   activeRoutines(routines, today),
 	}
 	snap.Overview = s.overview(habits, index, first, today)
 	return snap, nil
+}
+
+// completionTimeline derives one real day per entry from the same habits and
+// completions used by Today, Weekly, and Overview. Persisted daily summaries
+// are deliberately not consulted because they are not guaranteed to contain
+// a complete historical row for every date.
+func (s *Service) completionTimeline(habits []domain.Habit, index map[domain.Date]map[int64]bool, first, today domain.Date) CompletionTimeline {
+	days := make([]domain.DailySummary, 0, today.DaysSince(first)+1)
+	for d := first; !d.After(today); d = d.AddDays(1) {
+		days = append(days, domain.SummarizeDay(habits, index[d], d))
+	}
+	return CompletionTimeline{Start: first, Days: days}
 }
 
 // todayView groups today's scheduled habits: ungrouped first, then one block

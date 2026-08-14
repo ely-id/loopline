@@ -43,7 +43,7 @@ func TestWeeklyOverviewWindowsRowsAndKeepsCompletionAnchored(t *testing.T) {
 			t.Fatalf("Weekly Overview row %d exceeds width %d: %q", i, width, line)
 		}
 	}
-	wantCompletionLine := height - lipgloss.Height(root.renderCompletionCalendar(width))
+	wantCompletionLine := height - lipgloss.Height(root.renderCompletionTimeline(width))
 	if completionLine != wantCompletionLine {
 		t.Fatalf("Completion begins on row %d, want bottom-anchored row %d", completionLine, wantCompletionLine)
 	}

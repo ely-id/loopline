@@ -8,6 +8,7 @@ import (
 var appKeys = struct {
 	NextPanel, PreviousPanel key.Binding
 	Up, Down                 key.Binding
+	Left, Right              key.Binding
 	Enter, Back              key.Binding
 	Edit, Toggle, Delete     key.Binding
 	PreviousMonth, NextMonth key.Binding
@@ -17,6 +18,8 @@ var appKeys = struct {
 	PreviousPanel: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous panel")),
 	Up:            key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "previous item")),
 	Down:          key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "next item")),
+	Left:          key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "older history")),
+	Right:         key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "newer history")),
 	Enter:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
 	Back:          key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "menu")),
 	Edit:          key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
@@ -64,6 +67,12 @@ func (m *Root) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.Down):
 		m.moveLocal(1)
 		return m, nil
+	case m.navigation == NavigationPanel && m.onCompletionTimeline() && key.Matches(msg, appKeys.Left):
+		m.scrollCompletion(-1)
+		return m, nil
+	case m.navigation == NavigationPanel && m.onCompletionTimeline() && key.Matches(msg, appKeys.Right):
+		m.scrollCompletion(1)
+		return m, nil
 	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.Enter):
 		if m.pending {
 			return m, nil // a mutation is already in flight; drop this activate
@@ -91,11 +100,14 @@ func (m *Root) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Root) onCalendar() bool {
-	return m.navigation == NavigationPanel && ((m.focus.Column == ColOverview && m.focus.Block == OverviewCompletion) ||
-		(m.focus.Column == ColReminders && m.focus.Block == RemindersCalendar))
+	return m.navigation == NavigationPanel && m.focus.Column == ColReminders && m.focus.Block == RemindersCalendar
 }
 
-// stepCalendar handles </> (aliased to [/]) on either calendar block.
+func (m *Root) onCompletionTimeline() bool {
+	return m.navigation == NavigationPanel && m.focus.Column == ColOverview && m.focus.Block == OverviewCompletion
+}
+
+// stepCalendar handles </> (aliased to [/]) on the conventional Calendar.
 // Elsewhere it is a no-op. Up/down remain reserved for item navigation.
 func (m *Root) stepCalendar(delta int) tea.Cmd {
 	if m.onCalendar() {

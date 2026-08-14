@@ -38,6 +38,41 @@ func TestResponsiveHeaderUsesExactASCIIThenTextThenMinimalIdentity(t *testing.T)
 	}
 }
 
+func TestASCIIHeaderBreakpointUsesMeasuredContentAndFrameBudget(t *testing.T) {
+	root := newReadyRoot(t, newRichBackend(domain.MustParseDate("2026-08-10")))
+	root.width = 120
+
+	root.height = 35
+	compact := root.renderHeader()
+	if strings.Contains(stripANSI(compact), "┓      ┓•") || lipgloss.Height(compact) != 1 {
+		t.Fatalf("height 35 should retain the one-line fallback: %q", stripANSI(compact))
+	}
+
+	root.height = 36
+	full := root.renderHeader()
+	if !strings.Contains(stripANSI(full), "┓      ┓•") || lipgloss.Height(full) != lipgloss.Height(looplineASCII) {
+		t.Fatalf("height 36 should render the natural ASCII mark: %q", stripANSI(full))
+	}
+
+	footerHeight := lipgloss.Height(root.renderFooter())
+	frameHeight := root.theme.Column.GetVerticalFrameSize()
+	minimumContent := MinHeight - lipgloss.Height(compact) - footerHeight - frameHeight
+	availableContent := root.height - lipgloss.Height(full) - footerHeight - frameHeight
+	if availableContent != minimumContent {
+		t.Fatalf("breakpoint content budget = %d, want the supported minimum %d (footer=%d frame=%d)", availableContent, minimumContent, footerHeight, frameHeight)
+	}
+
+	content := root.View().Content
+	if got := lipgloss.Height(content); got > root.height {
+		t.Fatalf("full-logo view height = %d, terminal height = %d", got, root.height)
+	}
+	for _, want := range []string{"Completion", "Calendar", "Year"} {
+		if !strings.Contains(stripANSI(content), want) {
+			t.Fatalf("full-logo breakpoint clipped %q from the body:\n%s", want, stripANSI(content))
+		}
+	}
+}
+
 func TestHeaderSelectionTreatmentTracksNavigationLevel(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(domain.MustParseDate("2026-08-10")))
 	if !root.theme.HeaderSelected.GetReverse() {
@@ -90,6 +125,11 @@ func TestFooterOmitsUnavailablePrimaryAction(t *testing.T) {
 	footer := flattenWhitespace(stripANSI(root.renderFooter()))
 	if strings.Contains(footer, "enter act") {
 		t.Fatalf("non-actionable Lifetime selection advertises Enter: %q", footer)
+	}
+	setPanelFocus(root, Focus{Column: ColOverview, Block: OverviewCompletion, Item: 0})
+	footer = flattenWhitespace(stripANSI(root.renderFooter()))
+	if strings.Contains(footer, "<> month") || !strings.Contains(footer, "←→ history") {
+		t.Fatalf("Completion footer did not expose only week history navigation: %q", footer)
 	}
 
 	setPanelFocus(root, Focus{Column: ColReminders, Block: RemindersCalendar, Item: 0})

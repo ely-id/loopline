@@ -16,7 +16,7 @@ import (
 // anchors Completion at the bottom of the available panel height.
 func (m *Root) renderOverview(width, height int) string {
 	lifetime := m.renderLifetime(width)
-	completion := m.renderCompletionCalendar(width)
+	completion := m.renderCompletionTimeline(width)
 	fixed := lipgloss.Height(lifetime) + lipgloss.Height(completion) + 2
 	weeklyHeight := max(height-fixed, 1)
 	weekly := m.renderWeeklyOverview(width, weeklyHeight)
@@ -133,108 +133,256 @@ func (m *Root) renderLifetime(width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m *Root) renderCompletionCalendar(width int) string {
-	cal := m.snap.Calendar
-	lines := []string{
-		m.overviewBlockTitle(OverviewCompletion).Render(theme.IconCompletion + " Completion"),
-		m.theme.Dim.Render(centeredLine(calendarMonthLabel(cal), width)),
+const completionWeekGap = 1
+
+var completionWeekdayLabels = [7]string{"Su", "", "Tu", "", "Th", "", "Sa"}
+
+type completionGridGeometry struct {
+	Gutter, CellWidth, Stride, Capacity int
+}
+
+type completionWeekWindow struct {
+	Start, End, Earliest, Latest, Today domain.Date
+	Count, Leading, Capacity            int
+}
+
+type completionMonthMark struct {
+	Column int
+	Label  string
+}
+
+func completionGeometry(width int) completionGridGeometry {
+	cellWidth := max(lipgloss.Width(theme.HeatmapSquare), 1)
+	gutter := 3 // compact two-cell weekday label plus one separating cell
+	stride := cellWidth + completionWeekGap
+	usable := max(width-gutter, 0)
+	capacity := 0
+	if usable >= cellWidth {
+		capacity = 1 + (usable-cellWidth)/stride
+	}
+	return completionGridGeometry{Gutter: gutter, CellWidth: cellWidth, Stride: stride, Capacity: capacity}
+}
+
+func completionSunday(d domain.Date) domain.Date {
+	return d.AddDays(-int(d.Weekday()))
+}
+
+// completionVisibleWindow resolves the calendar range before rendering.
+// EndWeek is zero while present-anchored; otherwise it is the user's
+// historical viewport end. The viewport always contains every calendar week
+// that fits; Completion.Start limits historical scrolling, not whether an
+// already-occurred date exists on the calendar.
+func completionVisibleWindow(start, today, endWeek domain.Date, width int) completionWeekWindow {
+	geometry := completionGeometry(width)
+	if start.IsZero() || start.After(today) {
+		start = today
+	}
+	earliest := completionSunday(start)
+	latest := completionSunday(today)
+	count := geometry.Capacity
+	window := completionWeekWindow{
+		Earliest: earliest,
+		Latest:   latest,
+		Today:    today,
+		Count:    count,
+		Capacity: geometry.Capacity,
+	}
+	if count <= 0 {
+		return window
 	}
 
-	var cells []string
-	for _, week := range cal.Weeks {
-		for _, day := range week {
-			if day.InMonth {
-				cells = append(cells, m.completionDayCell(day))
-			}
-		}
+	end := endWeek
+	if end.IsZero() || end.After(latest) {
+		end = latest
 	}
-	lines = append(lines, justifiedCompletionRows(cells, width)...)
+	minimumEnd := earliest.AddDays((count - 1) * 7)
+	if minimumEnd.After(latest) {
+		minimumEnd = latest
+	}
+	if end.Before(minimumEnd) {
+		end = minimumEnd
+	}
+	window.End = end
+	window.Start = end.AddDays(-(count - 1) * 7)
+	return window
+}
+
+func (m *Root) renderCompletionTimeline(width int) string {
+	window := completionVisibleWindow(m.snap.Completion.Start, m.today, m.completionEndWeek, width)
+	geometry := completionGeometry(width)
+	lines := make([]string, 0, 9)
+	lines = append(lines, m.overviewBlockTitle(OverviewCompletion).Render(theme.IconCompletion+" Completion"))
+	lines = append(lines, m.renderCompletionMonthLabels(window, geometry))
+	for weekday, label := range completionWeekdayLabels {
+		lines = append(lines, m.renderCompletionWeekday(window, geometry, weekday, label))
+	}
 	return strings.Join(lines, "\n")
 }
 
-// justifiedCompletionRows renders chronological month days as a compact flow
-// without a weekday axis. Rows are balanced before their inter-cell spacing is
-// expanded, avoiding a nearly empty final row while still using the available
-// width deliberately.
-func justifiedCompletionRows(cells []string, width int) []string {
-	if len(cells) == 0 || width <= 0 {
-		return nil
-	}
-	maxPerRow := max((width+1)/2, 1) // at least one cell of separation
-	rowCount := (len(cells) + maxPerRow - 1) / maxPerRow
-	base, extra := len(cells)/rowCount, len(cells)%rowCount
-
-	rows := make([]string, 0, rowCount)
-	start := 0
-	for row := 0; row < rowCount; row++ {
-		count := base
-		if row < extra {
-			count++
-		}
-		rows = append(rows, justifyCompletionRow(cells[start:start+count], width))
-		start += count
-	}
-	return rows
+func (m *Root) completionTimelineWidth() int {
+	outer := columnWidths(m.width)
+	return max(outer[ColOverview]-m.theme.Column.GetHorizontalFrameSize(), 1)
 }
 
-func justifyCompletionRow(cells []string, width int) string {
-	if len(cells) == 0 {
-		return ""
+func (m *Root) clampCompletionViewport() {
+	if !m.ready || m.completionEndWeek.IsZero() {
+		return
 	}
-	if len(cells) == 1 {
-		return centeredLine(cells[0], width)
+	window := completionVisibleWindow(
+		m.snap.Completion.Start,
+		m.today,
+		m.completionEndWeek,
+		m.completionTimelineWidth(),
+	)
+	if window.Count <= 0 || window.End.Equal(window.Latest) {
+		m.completionEndWeek = domain.Date{}
+		return
+	}
+	m.completionEndWeek = window.End
+}
+
+// scrollCompletion moves the visible end in whole calendar weeks. A zero
+// completionEndWeek is the present anchor; reaching the current week while
+// scrolling forward restores that state.
+func (m *Root) scrollCompletion(delta int) {
+	if delta == 0 {
+		return
+	}
+	window := completionVisibleWindow(
+		m.snap.Completion.Start,
+		m.today,
+		m.completionEndWeek,
+		m.completionTimelineWidth(),
+	)
+	if window.Count <= 0 {
+		return
 	}
 
-	cellsWidth := 0
-	for _, cell := range cells {
-		cellsWidth += lipgloss.Width(cell)
+	if delta < 0 {
+		minimumEnd := window.Earliest.AddDays((window.Count - 1) * 7)
+		target := window.End.AddDays(-7)
+		if target.Before(minimumEnd) {
+			target = minimumEnd
+		}
+		if target.Before(window.Latest) {
+			m.completionEndWeek = target
+		}
+		return
 	}
-	space := max(width-cellsWidth, len(cells)-1)
-	baseGap, extra := space/(len(cells)-1), space%(len(cells)-1)
 
+	if m.completionEndWeek.IsZero() {
+		return
+	}
+	target := window.End.AddDays(7)
+	if !target.Before(window.Latest) {
+		m.completionEndWeek = domain.Date{}
+		return
+	}
+	m.completionEndWeek = target
+}
+
+func (m *Root) renderCompletionWeekday(window completionWeekWindow, geometry completionGridGeometry, weekday int, label string) string {
 	var row strings.Builder
-	for i, cell := range cells {
-		row.WriteString(cell)
-		if i == len(cells)-1 {
+	row.Grow(geometry.Gutter + geometry.Capacity*geometry.Stride)
+	row.WriteString(padTo(label, geometry.Gutter-1))
+	row.WriteByte(' ')
+	row.WriteString(strings.Repeat(" ", window.Leading*geometry.Stride))
+
+	for week := 0; week < window.Count; week++ {
+		date := completionCellDate(window.Start, week, weekday)
+		if !date.After(m.today) {
+			row.WriteString(m.completionDayCell(date))
+		} else {
+			row.WriteString(strings.Repeat(" ", geometry.CellWidth))
+		}
+		if week < window.Count-1 {
+			row.WriteString(strings.Repeat(" ", completionWeekGap))
+		}
+	}
+	return strings.TrimRight(row.String(), " ")
+}
+
+func completionCellDate(windowStart domain.Date, week, weekday int) domain.Date {
+	return windowStart.AddDays(week*7 + weekday)
+}
+
+func (m *Root) completionSummary(date domain.Date) domain.DailySummary {
+	index := date.DaysSince(m.snap.Completion.Start)
+	if index < 0 || index >= len(m.snap.Completion.Days) {
+		return domain.DailySummary{Date: date}
+	}
+	summary := m.snap.Completion.Days[index]
+	if !summary.Date.Equal(date) {
+		return domain.DailySummary{Date: date}
+	}
+	return summary
+}
+
+func (m *Root) completionDayCell(date domain.Date) string {
+	return m.completionDayStyle(date).Render(theme.HeatmapSquare)
+}
+
+func (m *Root) completionDayStyle(date domain.Date) lipgloss.Style {
+	style := m.theme.CompletionStyles[completionStage(m.completionSummary(date))]
+	if date.Equal(m.today) {
+		style = style.Bold(true).Underline(true)
+	}
+	return style
+}
+
+func completionMonthMarks(window completionWeekWindow, geometry completionGridGeometry) []completionMonthMark {
+	if window.Count <= 0 {
+		return nil
+	}
+	gridWidth := max(geometry.Capacity*geometry.Stride-completionWeekGap, 0)
+	marks := make([]completionMonthMark, 0, window.Count/4+1)
+	lastEnd := -2
+	for week := 0; week < window.Count; week++ {
+		weekStart := window.Start.AddDays(week * 7)
+		var first domain.Date
+		for weekday := 0; weekday < 7; weekday++ {
+			date := weekStart.AddDays(weekday)
+			if date.Day == 1 {
+				first = date
+				break
+			}
+		}
+		if first.IsZero() {
 			continue
 		}
-		gap := baseGap
-		if i < extra {
-			gap++
+		if !window.Today.IsZero() && first.After(window.Today) {
+			continue
 		}
-		row.WriteString(strings.Repeat(" ", gap))
+		label := strings.ToLower(first.Time().Format("Jan"))
+		column := (window.Leading + week) * geometry.Stride
+		end := column + lipgloss.Width(label)
+		if column < lastEnd+1 || end > gridWidth {
+			continue
+		}
+		marks = append(marks, completionMonthMark{Column: column, Label: label})
+		lastEnd = end
 	}
-	return row.String()
+	return marks
+}
+
+func (m *Root) renderCompletionMonthLabels(window completionWeekWindow, geometry completionGridGeometry) string {
+	var line strings.Builder
+	line.WriteString(strings.Repeat(" ", geometry.Gutter))
+	cursor := 0
+	for _, mark := range completionMonthMarks(window, geometry) {
+		line.WriteString(strings.Repeat(" ", max(mark.Column-cursor, 0)))
+		line.WriteString(m.theme.Dim.Render(mark.Label))
+		cursor = mark.Column + lipgloss.Width(mark.Label)
+	}
+	return strings.TrimRight(line.String(), " ")
 }
 
 func calendarMonthLabel(cal app.CalendarMonth) string {
 	return fmt.Sprintf("< %s %d >", cal.Month.String()[:3], cal.Year)
 }
 
-// completionDayCell renders exactly one requested U+F0C8 square for an
-// active-month day. Adjacent-month positions remain visually empty.
-func (m *Root) completionDayCell(day app.CalendarDay) string {
-	if !day.InMonth {
-		return ""
-	}
-
-	stage := completionStage(day.Summary)
-	if day.IsFuture {
-		stage = theme.CompletionStageNone
-	}
-	return m.completionDayStyle(day, stage).Render(theme.HeatmapSquare)
-}
-
-func (m *Root) completionDayStyle(day app.CalendarDay, stage theme.CompletionStage) lipgloss.Style {
-	style := m.theme.CompletionStyles[stage]
-	if day.IsToday {
-		style = style.Bold(true).Underline(true)
-	}
-	return style
-}
-
 // completionStage is the single percentage-to-semantics mapping used by the
-// month and Today. IsComplete, rather than a rounded 100%, owns the final
+// timeline and Today. IsComplete, rather than a rounded 100%, owns the final
 // stage so a 199/200 day can never look fully complete.
 func completionStage(sum domain.DailySummary) theme.CompletionStage {
 	if sum.Scheduled <= 0 {

@@ -226,9 +226,10 @@ func (f *fakeBackend) Snapshot(_ context.Context, req app.SnapshotRequest) (app.
 			DaysTracked:      tracked,
 			LifetimePercent:  lifetimePercent,
 		},
-		Calendar:  app.CalendarMonth{Year: month.Year, Month: month.Month, Weeks: weeks},
-		Reminders: append([]domain.Reminder(nil), f.reminders...),
-		Routines:  activeRoutines,
+		Completion: app.CompletionTimeline{Start: first, Days: summaries},
+		Calendar:   app.CalendarMonth{Year: month.Year, Month: month.Month, Weeks: weeks},
+		Reminders:  append([]domain.Reminder(nil), f.reminders...),
+		Routines:   activeRoutines,
 	}
 	return snap, nil
 }

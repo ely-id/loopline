@@ -74,6 +74,14 @@ type CalendarMonth struct {
 	Weeks [][]CalendarDay
 }
 
+// CompletionTimeline is the continuous daily history used by Completion.
+// Days contains exactly one authoritative summary per date from Start through
+// today, with no future or month-padding entries.
+type CompletionTimeline struct {
+	Start domain.Date
+	Days  []domain.DailySummary
+}
+
 // Overview is the lifetime summary block.
 type Overview struct {
 	CurrentStreak    int
@@ -86,12 +94,13 @@ type Overview struct {
 // Snapshot is everything the UI needs for one render pass. The UI never queries
 // storage itself; it asks for a Snapshot and replaces its state wholesale.
 type Snapshot struct {
-	Today     TodayView
-	Weekly    WeeklyOverview
-	Overview  Overview
-	Calendar  CalendarMonth
-	Reminders []domain.Reminder
-	Routines  []domain.Routine
+	Today      TodayView
+	Weekly     WeeklyOverview
+	Overview   Overview
+	Completion CompletionTimeline
+	Calendar   CalendarMonth
+	Reminders  []domain.Reminder
+	Routines   []domain.Routine
 }
 
 // SnapshotRequest selects the view parameters that the user can change.

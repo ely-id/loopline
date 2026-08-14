@@ -15,6 +15,7 @@ var helpEntries = []helpEntry{
 	{"e", "edit selected habit, routine or reminder"},
 	{"t", "expand / collapse routine or reminder"},
 	{"Delete", "delete selected entity with confirmation"},
+	{"Left / Right", "older / newer weeks in Completion"},
 	{"< / > ([ / ])", "previous / next month on a calendar"},
 	{"Esc", "close modal/help or return to the header"},
 	{"?", "toggle this help"},

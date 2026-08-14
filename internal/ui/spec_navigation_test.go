@@ -183,23 +183,25 @@ func TestMonthNavigationOnlyActsInsideFocusedCalendar(t *testing.T) {
 	root.navigation = NavigationPanel
 	root.focus = Focus{Column: ColOverview, Block: OverviewCompletion}
 	root = pressKey(t, root, ">")
-	want := domain.MustParseDate("2026-02-01")
-	if root.calMonth != want || root.snap.Calendar.Month != want.Month {
-		t.Fatalf("month after Jan 31 > = %s/%s, want February", root.calMonth, root.snap.Calendar.Month)
+	if !root.calMonth.IsZero() {
+		t.Fatalf("month key changed the conventional Calendar while Completion was focused: %s", root.calMonth)
 	}
-	root = pressKey(t, root, "<")
-	if root.calMonth != today.StartOfMonth() {
-		t.Fatalf("month after return = %s, want January", root.calMonth)
-	}
+
 	root.focus = Focus{Column: ColReminders, Block: RemindersCalendar}
 	root = pressKey(t, root, "]")
+	want := domain.MustParseDate("2026-02-01")
 	if root.calMonth != want {
-		t.Fatalf("Reminder Calendar does not share viewed month: %s", root.calMonth)
+		t.Fatalf("Reminder Calendar month = %s, want February", root.calMonth)
 	}
 	root.focus = Focus{Column: ColReminders, Block: RemindersList}
 	root = pressKey(t, root, "[")
 	if root.calMonth != want {
 		t.Fatal("month key acted outside a calendar target")
+	}
+	root.focus = Focus{Column: ColReminders, Block: RemindersCalendar}
+	root = pressKey(t, root, "[")
+	if root.calMonth != today.StartOfMonth() {
+		t.Fatalf("month after return = %s, want January", root.calMonth)
 	}
 }
 
