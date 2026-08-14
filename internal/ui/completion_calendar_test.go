@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 
 	"loopline/internal/app"
@@ -198,6 +199,106 @@ func TestCompletionHistoricalScrollingUsesWeekUnitsAndClampsBothBoundaries(t *te
 	if !root.completionEndWeek.IsZero() {
 		t.Fatal("right moved beyond the current week")
 	}
+}
+
+func TestCompletionHistoryAliasesAndWheelReachBeforeApril(t *testing.T) {
+	today := domain.MustParseDate("2026-08-12")
+	backend := newFakeBackend(today).withHabits(domain.Habit{
+		Title:     "Long history",
+		CreatedOn: domain.MustParseDate("2026-01-01"),
+	})
+	root := newReadyRoot(t, backend)
+	setPanelFocus(root, Focus{Column: ColOverview, Block: OverviewCompletion, Item: 0})
+
+	root = pressKey(t, root, "<")
+	firstEnd := root.completionEndWeek
+	if firstEnd.IsZero() {
+		t.Fatal("< did not leave present anchoring")
+	}
+	root = pressKey(t, root, "[")
+	if got := firstEnd.DaysSince(root.completionEndWeek); got != 7 {
+		t.Fatalf("[ moved %d days, want one week older", got)
+	}
+
+	beforeWheel := root.completionEndWeek
+	root = send(t, root, tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	if got := beforeWheel.DaysSince(root.completionEndWeek); got != 7 {
+		t.Fatalf("wheel up moved %d days, want one week older", got)
+	}
+
+	root = pressKey(t, root, ">")
+	root = pressKey(t, root, "]")
+	root = send(t, root, tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	if !root.completionEndWeek.IsZero() {
+		t.Fatalf("newer aliases did not restore present anchoring: %s", root.completionEndWeek)
+	}
+
+	for range 20 {
+		root = pressKey(t, root, "<")
+	}
+	window := completionVisibleWindow(
+		root.snap.Completion.Start,
+		root.today,
+		root.completionEndWeek,
+		root.completionTimelineWidth(),
+	)
+	if !window.Start.Before(domain.MustParseDate("2026-04-01")) {
+		t.Fatalf("history stopped at %s, want navigation before April", window.Start)
+	}
+}
+
+func TestCompletionHistoryRemainsBoundedAcrossResponsiveHeaderTransitions(t *testing.T) {
+	today := domain.MustParseDate("2026-08-12")
+	backend := newFakeBackend(today).withHabits(domain.Habit{
+		Title:     "Long history",
+		CreatedOn: domain.MustParseDate("2025-01-01"),
+	})
+	root := newReadyRoot(t, backend)
+	setPanelFocus(root, Focus{Column: ColOverview, Block: OverviewCompletion, Item: 0})
+
+	for range 20 {
+		root = pressKey(t, root, "left")
+	}
+	if root.completionEndWeek.IsZero() {
+		t.Fatal("test setup did not enter a historical viewport")
+	}
+
+	assertState := func(width, height int, wantASCII bool) {
+		t.Helper()
+		root = send(t, root, tea.WindowSizeMsg{Width: width, Height: height})
+		view := root.View()
+		if !view.AltScreen {
+			t.Fatalf("%dx%d resize lost alternate-screen mode", width, height)
+		}
+		if got := lipgloss.Height(view.Content); got > height {
+			t.Fatalf("%dx%d view height = %d", width, height, got)
+		}
+		hasASCII := strings.Contains(stripANSI(root.renderHeader()), "┓      ┓•")
+		if hasASCII != wantASCII {
+			t.Fatalf("%dx%d ASCII header = %v, want %v", width, height, hasASCII, wantASCII)
+		}
+
+		window := completionVisibleWindow(
+			root.snap.Completion.Start,
+			root.today,
+			root.completionEndWeek,
+			root.completionTimelineWidth(),
+		)
+		if window.Start.Before(window.Earliest) || window.End.After(window.Latest) {
+			t.Fatalf("%dx%d completion window escaped history bounds: %+v", width, height, window)
+		}
+	}
+
+	assertState(120, 35, false)
+	for range 5 {
+		root = send(t, root, tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	}
+	assertState(120, 36, true)
+	assertState(200, 60, true)
+	for range 5 {
+		root = send(t, root, tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	}
+	assertState(120, 35, false)
 }
 
 func TestCompletionPresentAnchorFollowsDateWhileHistoricalViewportStaysPut(t *testing.T) {

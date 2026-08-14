@@ -175,16 +175,25 @@ func TestSnapshotRequestGuardStillDiscardsStaleResponses(t *testing.T) {
 
 func TestMonthNavigationOnlyActsInsideFocusedCalendar(t *testing.T) {
 	today := domain.MustParseDate("2026-01-31")
-	root := newReadyRoot(t, newRichBackend(today))
+	backend := newRichBackend(today)
+	backend.habits[0].CreatedOn = today.AddDays(-365)
+	root := newReadyRoot(t, backend)
 	root = pressKey(t, root, "]")
 	if !root.calMonth.IsZero() {
 		t.Fatal("month changed while header had focus")
 	}
 	root.navigation = NavigationPanel
 	root.focus = Focus{Column: ColOverview, Block: OverviewCompletion}
-	root = pressKey(t, root, ">")
+	root = pressKey(t, root, "<")
 	if !root.calMonth.IsZero() {
 		t.Fatalf("month key changed the conventional Calendar while Completion was focused: %s", root.calMonth)
+	}
+	if root.completionEndWeek.IsZero() {
+		t.Fatal("< on Completion did not navigate its independent history viewport")
+	}
+	root = pressKey(t, root, ">")
+	if !root.completionEndWeek.IsZero() {
+		t.Fatalf("> on Completion did not return to the present: %s", root.completionEndWeek)
 	}
 
 	root.focus = Focus{Column: ColReminders, Block: RemindersCalendar}

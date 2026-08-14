@@ -18,26 +18,37 @@ const looplineASCII = "┓      ┓•    \n┃┏┓┏┓┏┓┃┓┏┓┏
 // View implements tea.Model.
 func (m *Root) View() tea.View {
 	if m.width < MinWidth || m.height < MinHeight {
-		return tea.NewView(m.renderMinSize())
+		return newRootView(m.renderMinSize())
 	}
 	if m.modal != nil {
-		return tea.NewView(m.renderModal())
+		return newRootView(m.renderModal())
 	}
 	if m.help {
-		return tea.NewView(m.renderHelp())
+		return newRootView(m.renderHelp())
 	}
 	if !m.ready {
 		if m.status != "" {
-			return tea.NewView(m.renderStartupError())
+			return newRootView(m.renderStartupError())
 		}
-		return tea.NewView(m.renderLoading())
+		return newRootView(m.renderLoading())
 	}
 
 	header := m.renderHeader()
 	footer := m.renderFooter()
 	bodyHeight := max(m.height-lipgloss.Height(header)-lipgloss.Height(footer), 1)
 	body := m.renderColumns(bodyHeight)
-	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, body, footer))
+	return newRootView(lipgloss.JoinVertical(lipgloss.Left, header, body, footer))
+}
+
+// newRootView establishes the terminal contract shared by every UI state.
+// loopline is a terminal-sized dashboard, not an inline prompt: the alternate
+// screen keeps redraws out of normal scrollback, while cell-motion mouse mode
+// lets wheel input reach the focused internal history viewport.
+func newRootView(content string) tea.View {
+	view := tea.NewView(content)
+	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
+	return view
 }
 
 // columnWidths gives the execution-heavy Today column modestly more room.

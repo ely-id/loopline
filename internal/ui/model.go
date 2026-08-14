@@ -106,6 +106,18 @@ func (m *Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateModal(msg)
 	}
 
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		if !m.help && m.onCompletionTimeline() {
+			switch wheel.Button {
+			case tea.MouseWheelUp, tea.MouseWheelLeft:
+				m.scrollCompletion(-1)
+			case tea.MouseWheelDown, tea.MouseWheelRight:
+				m.scrollCompletion(1)
+			}
+		}
+		return m, nil
+	}
+
 	if key, ok := msg.(tea.KeyPressMsg); ok {
 		return m.handleKey(key)
 	}

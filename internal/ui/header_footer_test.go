@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 
 	"loopline/internal/domain"
@@ -71,6 +72,45 @@ func TestASCIIHeaderBreakpointUsesMeasuredContentAndFrameBudget(t *testing.T) {
 			t.Fatalf("full-logo breakpoint clipped %q from the body:\n%s", want, stripANSI(content))
 		}
 	}
+}
+
+func TestRootViewsAlwaysUseStableFullscreenCanvas(t *testing.T) {
+	today := domain.MustParseDate("2026-08-10")
+	backend := newRichBackend(today)
+
+	assertFullscreen := func(name string, root *Root) {
+		t.Helper()
+		view := root.View()
+		if !view.AltScreen {
+			t.Errorf("%s view did not request Bubble Tea's alternate screen", name)
+		}
+		if view.MouseMode != tea.MouseModeCellMotion {
+			t.Errorf("%s view mouse mode = %d, want cell motion for internal wheel routing", name, view.MouseMode)
+		}
+	}
+
+	loading := New(backend)
+	loading.width, loading.height = 120, 40
+	assertFullscreen("loading", loading)
+
+	startupError := New(backend)
+	startupError.width, startupError.height, startupError.status = 120, 40, "load failed"
+	assertFullscreen("startup error", startupError)
+
+	root := newReadyRoot(t, backend)
+	root.width, root.height = 120, 35
+	assertFullscreen("compact header", root)
+	root.height = 36
+	assertFullscreen("ASCII header", root)
+
+	root.width, root.height = 80, 20
+	assertFullscreen("minimum-size fallback", root)
+	root.width, root.height = 120, 40
+	root.help = true
+	assertFullscreen("help", root)
+	root.help = false
+	root.modal = newAddRoutineForm(backend)
+	assertFullscreen("modal", root)
 }
 
 func TestHeaderSelectionTreatmentTracksNavigationLevel(t *testing.T) {

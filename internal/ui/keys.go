@@ -73,6 +73,12 @@ func (m *Root) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case m.navigation == NavigationPanel && m.onCompletionTimeline() && key.Matches(msg, appKeys.Right):
 		m.scrollCompletion(1)
 		return m, nil
+	case m.navigation == NavigationPanel && m.onCompletionTimeline() && key.Matches(msg, appKeys.PreviousMonth):
+		m.scrollCompletion(-1)
+		return m, nil
+	case m.navigation == NavigationPanel && m.onCompletionTimeline() && key.Matches(msg, appKeys.NextMonth):
+		m.scrollCompletion(1)
+		return m, nil
 	case m.navigation == NavigationPanel && key.Matches(msg, appKeys.Enter):
 		if m.pending {
 			return m, nil // a mutation is already in flight; drop this activate
