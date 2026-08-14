@@ -44,7 +44,7 @@ func TestLifetimeUsesExactLeafHeading(t *testing.T) {
 	}
 }
 
-func TestColumnWidthsPrioritizeTodayAndSumExactly(t *testing.T) {
+func TestCompactColumnWidthsPrioritizeTodayAndSumExactly(t *testing.T) {
 	for _, width := range []int{MinWidth, 120, 160} {
 		cols := columnWidths(width)
 		if got := cols[0] + cols[1] + cols[2] + 2; got != width {
@@ -56,6 +56,93 @@ func TestColumnWidthsPrioritizeTodayAndSumExactly(t *testing.T) {
 	}
 	if got := columnWidths(MinWidth); got != [3]int{31, 34, 29} {
 		t.Fatalf("minimum column widths = %v, want [31 34 29]", got)
+	}
+}
+
+func TestWideColumnWidthsKeepIdentityCompactAndHabitsNarrow(t *testing.T) {
+	root := newReadyRoot(t, newRichBackend(sixWeekMonthToday))
+	wantIdentity := lipgloss.Width(looplineASCII) + root.theme.Column.GetHorizontalFrameSize() + identityRailExtraWidth
+
+	for _, width := range []int{wideLayoutMinWidth, 140, 200} {
+		root.width = width
+		cols := root.wideColumnWidths()
+		if got := cols[0] + cols[1] + cols[2] + cols[3] + wideLayoutGaps; got != width {
+			t.Fatalf("wideColumnWidths(%d) sums to %d including gaps", width, got)
+		}
+		if cols[0] != wantIdentity {
+			t.Fatalf("wideColumnWidths(%d) identity width = %d, want configured width %d", width, cols[0], wantIdentity)
+		}
+		if cols[1] >= cols[2] || cols[1] >= cols[3] {
+			t.Fatalf("wideColumnWidths(%d) = %v, want Habits narrower than Overview and Reminders", width, cols)
+		}
+	}
+
+	root.width = wideLayoutMinWidth
+	if got := root.wideColumnWidths(); got != [4]int{20, 28, 35, 34} {
+		t.Fatalf("minimum wide widths = %v, want identity/Habits/Reminders/Overview [20 28 35 34]", got)
+	}
+	innerIdentity := root.wideColumnWidths()[0] - root.theme.Column.GetHorizontalFrameSize()
+	navLines := strings.Split(stripANSI(root.renderIdentityNavigation(innerIdentity)), "\n")
+	if len(navLines) != numColumns {
+		t.Fatalf("identity navigation has %d rows, want %d", len(navLines), numColumns)
+	}
+	for i, want := range []string{"HABITS", "REMINDERS", "OVERVIEW"} {
+		if !strings.Contains(navLines[i], want) || lipgloss.Width(navLines[i]) != innerIdentity {
+			t.Fatalf("identity navigation row %d = %q, want padded vertical %s row at width %d", i, navLines[i], want, innerIdentity)
+		}
+	}
+}
+
+func TestWideLayoutBreakpointPreservesCompactThreePanelFallback(t *testing.T) {
+	root := newReadyRoot(t, newRichBackend(sixWeekMonthToday))
+	root.height = MinHeight
+
+	root.width = wideLayoutMinWidth - 1
+	if root.usesIdentityRail() {
+		t.Fatal("compact width unexpectedly enabled the identity rail")
+	}
+	if got := strings.Count(stripANSI(root.View().Content), "└"); got != 3 {
+		t.Fatalf("compact layout closed %d columns, want 3", got)
+	}
+
+	root.width = wideLayoutMinWidth
+	if !root.usesIdentityRail() {
+		t.Fatal("wide breakpoint did not enable the identity rail")
+	}
+	content := stripANSI(root.View().Content)
+	if got := strings.Count(content, "└"); got != 4 {
+		t.Fatalf("wide layout closed %d columns, want identity plus 3 content columns", got)
+	}
+	if strings.Count(content, "┓      ┓•") != 1 {
+		t.Fatalf("wide layout did not render exactly one ASCII identity:\n%s", content)
+	}
+	for _, want := range []string{"Overview", "Habits", "Reminders", "OVERVIEW", "HABITS", "REMINDERS"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("wide layout is missing %q:\n%s", want, content)
+		}
+	}
+	titleLine := strings.Split(content, "\n")[1]
+	habitsAt := strings.Index(titleLine, "Habits")
+	remindersAt := strings.Index(titleLine, "Reminders")
+	overviewAt := strings.Index(titleLine, "Overview")
+	if habitsAt < 0 || !(habitsAt < remindersAt && remindersAt < overviewAt) {
+		t.Fatalf("wide content order is not Habits → Reminders → Overview: %q", titleLine)
+	}
+}
+
+func TestCompactPanelsFollowGlobalVisualOrder(t *testing.T) {
+	root := newReadyRoot(t, newRichBackend(sixWeekMonthToday))
+	root.width, root.height = wideLayoutMinWidth-1, MinHeight
+	content := strings.Split(stripANSI(root.renderColumns(MinHeight-2)), "\n")
+	if len(content) < 2 {
+		t.Fatalf("compact columns did not render an interior row: %q", content)
+	}
+	firstInterior := content[1]
+	habitsAt := strings.Index(firstInterior, "Add")
+	remindersAt := strings.Index(firstInterior, "+ Add reminder")
+	overviewAt := strings.Index(firstInterior, "Lifetime")
+	if habitsAt < 0 || !(habitsAt < remindersAt && remindersAt < overviewAt) {
+		t.Fatalf("compact content order is not Habits → Reminders → Overview: %q", firstInterior)
 	}
 }
 

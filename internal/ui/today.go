@@ -22,12 +22,12 @@ func (m *Root) renderToday(width, height int) string {
 	progress := m.renderDayProgress(width, m.snap.Today.Summary)
 	listHeight := max(height-todayChrome, 1)
 
-	body := m.theme.Muted.Render("No habits scheduled today.")
+	body := m.theme.Muted.Render(emptyScheduleMarker)
 	if lines, focusLine := m.todayLines(width); len(lines) > 0 {
 		body = strings.Join(windowAround(lines, listHeight, focusLine), "\n")
 	}
 	// Pad the list out to its full budget so the progress bar always sits at
-	// the bottom of the column (SPEC Column 2: "At the bottom: daily
+	// the bottom of the Habits panel (SPEC: "At the bottom: daily
 	// completion progress bar...") instead of trailing right under a short
 	// habit list with a gap styledColumn's own padding leaves beneath it.
 	body = padLinesTo(body, listHeight)

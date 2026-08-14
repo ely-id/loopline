@@ -13,7 +13,7 @@ import (
 
 func TestResponsiveHeaderUsesExactASCIIThenTextThenMinimalIdentity(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(domain.MustParseDate("2026-08-10")))
-	root.width, root.height = 120, 40
+	root.width, root.height = wideLayoutMinWidth-1, 40
 	full := stripANSI(root.renderHeader())
 	for _, logoLine := range strings.Split(looplineASCII, "\n") {
 		if !strings.Contains(full, strings.TrimRight(logoLine, " ")) {
@@ -24,6 +24,12 @@ func TestResponsiveHeaderUsesExactASCIIThenTextThenMinimalIdentity(t *testing.T)
 		if !strings.Contains(full, want) {
 			t.Fatalf("full header is missing %q: %q", want, full)
 		}
+	}
+	habitsAt := strings.Index(full, "HABITS")
+	remindersAt := strings.Index(full, "REMINDERS")
+	overviewAt := strings.Index(full, "OVERVIEW")
+	if habitsAt < 0 || !(habitsAt < remindersAt && remindersAt < overviewAt) {
+		t.Fatalf("compact header order is not Habits → Reminders → Overview: %q", full)
 	}
 
 	root.width, root.height = MinWidth, MinHeight
@@ -41,7 +47,7 @@ func TestResponsiveHeaderUsesExactASCIIThenTextThenMinimalIdentity(t *testing.T)
 
 func TestASCIIHeaderBreakpointUsesMeasuredContentAndFrameBudget(t *testing.T) {
 	root := newReadyRoot(t, newRichBackend(domain.MustParseDate("2026-08-10")))
-	root.width = 120
+	root.width = wideLayoutMinWidth - 1
 
 	root.height = 35
 	compact := root.renderHeader()
@@ -98,9 +104,11 @@ func TestRootViewsAlwaysUseStableFullscreenCanvas(t *testing.T) {
 	assertFullscreen("startup error", startupError)
 
 	root := newReadyRoot(t, backend)
-	root.width, root.height = 120, 35
+	root.width, root.height = wideLayoutMinWidth-1, 35
 	assertFullscreen("compact header", root)
-	root.height = 36
+	root.width = wideLayoutMinWidth
+	assertFullscreen("identity rail", root)
+	root.width, root.height = wideLayoutMinWidth-1, 36
 	assertFullscreen("ASCII header", root)
 
 	root.width, root.height = 80, 20

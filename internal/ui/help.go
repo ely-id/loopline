@@ -9,7 +9,7 @@ import (
 type helpEntry struct{ key, desc string }
 
 var helpEntries = []helpEntry{
-	{"Tab / Shift+Tab", "next / previous panel in the header"},
+	{"Tab / Shift+Tab", "next / previous panel in global navigation"},
 	{"Enter", "enter panel / act / toggle / confirm"},
 	{"Up/Down, j/k", "move through panel items"},
 	{"e", "edit selected habit, routine or reminder"},
@@ -17,7 +17,7 @@ var helpEntries = []helpEntry{
 	{"Delete", "delete selected entity with confirmation"},
 	{"Left / Right", "older / newer weeks in Completion"},
 	{"< / > ([ / ])", "previous / next month on a calendar"},
-	{"Esc", "close modal/help or return to the header"},
+	{"Esc", "close modal/help or return to global navigation"},
 	{"?", "toggle this help"},
 	{"q", "quit"},
 }

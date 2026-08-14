@@ -15,6 +15,16 @@ import (
 // rendering never depends on the development-only reference file.
 const looplineASCII = "┓      ┓•    \n┃┏┓┏┓┏┓┃┓┏┓┏┓\n┗┗┛┗┛┣┛┗┗┛┗┗ \n     ┛       "
 
+const (
+	// At 120 cells the natural-width identity rail plus the three content
+	// panels retain 28/35/34 outer cells for Habits/Reminders/Overview. Below this
+	// breakpoint the established three-panel layout is more useful than
+	// squeezing in a fourth region.
+	wideLayoutMinWidth     = 120
+	wideLayoutGaps         = 3 // one cell between each of four regions
+	identityRailExtraWidth = 3 // modest breathing room beyond the logo's natural frame
+)
+
 // View implements tea.Model.
 func (m *Root) View() tea.View {
 	if m.width < MinWidth || m.height < MinHeight {
@@ -33,8 +43,14 @@ func (m *Root) View() tea.View {
 		return newRootView(m.renderLoading())
 	}
 
-	header := m.renderHeader()
 	footer := m.renderFooter()
+	if m.usesIdentityRail() {
+		bodyHeight := max(m.height-lipgloss.Height(footer), 1)
+		body := m.renderWideColumns(bodyHeight)
+		return newRootView(lipgloss.JoinVertical(lipgloss.Left, body, footer))
+	}
+
+	header := m.renderHeader()
 	bodyHeight := max(m.height-lipgloss.Height(header)-lipgloss.Height(footer), 1)
 	body := m.renderColumns(bodyHeight)
 	return newRootView(lipgloss.JoinVertical(lipgloss.Left, header, body, footer))
@@ -80,6 +96,36 @@ func columnWidths(total int) [3]int {
 	return w
 }
 
+func (m *Root) usesIdentityRail() bool {
+	return m.width >= wideLayoutMinWidth
+}
+
+// wideColumnWidths returns identity, Habits, Reminders and Overview outer
+// widths. The identity rail is measured from the ASCII mark and never grows;
+// the three content panels start at their proven compact minima. Additional
+// space is weighted 1:2:2 so short habit rows stay compact while Reminders and
+// Overview gain useful data width.
+func (m *Root) wideColumnWidths() [4]int {
+	identity := lipgloss.Width(looplineASCII) + m.theme.Column.GetHorizontalFrameSize() + identityRailExtraWidth
+	panelSpace := m.width - identity - wideLayoutGaps
+	panels := [3]int{28, 35, 34}
+	extra := max(panelSpace-(panels[0]+panels[1]+panels[2]), 0)
+	habitsExtra := extra / 5
+	remindersExtra := extra * 2 / 5
+	panels[0] += habitsExtra
+	panels[1] += remindersExtra
+	panels[2] += extra - habitsExtra - remindersExtra
+	return [4]int{identity, panels[0], panels[1], panels[2]}
+}
+
+func (m *Root) panelColumnWidths() [3]int {
+	if !m.usesIdentityRail() {
+		return columnWidths(m.width)
+	}
+	wide := m.wideColumnWidths()
+	return [3]int{wide[3], wide[1], wide[2]}
+}
+
 func (m *Root) renderColumns(bodyHeight int) string {
 	outer := columnWidths(m.width)
 	innerHeight := max(bodyHeight-m.theme.Column.GetVerticalFrameSize(), 1)
@@ -93,11 +139,55 @@ func (m *Root) renderColumns(bodyHeight int) string {
 		text[i] = tw
 	}
 
-	col0 := m.styledColumn(ColOverview, outer[0], bodyHeight, m.renderOverview(text[0], innerHeight))
-	col1 := m.styledColumn(ColToday, outer[1], bodyHeight, m.renderToday(text[1], innerHeight))
-	col2 := m.styledColumn(ColReminders, outer[2], bodyHeight, m.renderReminders(text[2], innerHeight))
+	habits := m.styledColumn(ColToday, outer[ColToday], bodyHeight, m.renderToday(text[ColToday], innerHeight))
+	reminders := m.styledColumn(ColReminders, outer[ColReminders], bodyHeight, m.renderReminders(text[ColReminders], innerHeight))
+	overview := m.styledColumn(ColOverview, outer[ColOverview], bodyHeight, m.renderOverview(text[ColOverview], innerHeight))
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, col0, " ", col1, " ", col2)
+	return lipgloss.JoinHorizontal(lipgloss.Top, habits, " ", reminders, " ", overview)
+}
+
+func (m *Root) renderWideColumns(bodyHeight int) string {
+	outer := m.wideColumnWidths()
+	innerHeight := max(bodyHeight-m.theme.Column.GetVerticalFrameSize(), 1)
+	contentHeight := max(innerHeight-1, 1) // one persistent panel-title row
+
+	text := [3]int{}
+	for i, ow := range outer[1:] {
+		text[i] = max(ow-m.theme.Column.GetHorizontalFrameSize(), 4)
+	}
+
+	identity := m.renderIdentityRail(outer[0], bodyHeight)
+	habits := m.renderWidePanel(ColToday, "Habits", outer[1], bodyHeight, text[0], m.renderToday(text[0], contentHeight))
+	reminders := m.renderWidePanel(ColReminders, "Reminders", outer[2], bodyHeight, text[1], m.renderReminders(text[1], contentHeight))
+	overview := m.renderWidePanel(ColOverview, "Overview", outer[3], bodyHeight, text[2], m.renderOverview(text[2], contentHeight))
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, identity, " ", habits, " ", reminders, " ", overview)
+}
+
+func (m *Root) renderWidePanel(col int, title string, outerWidth, outerHeight, textWidth int, content string) string {
+	heading := lipgloss.PlaceHorizontal(textWidth, lipgloss.Center, m.theme.HeaderItem.Render(title))
+	return m.styledColumn(col, outerWidth, outerHeight, heading+"\n"+content)
+}
+
+func (m *Root) renderIdentityRail(outerWidth, outerHeight int) string {
+	style := m.theme.Column.Width(outerWidth).Height(outerHeight).MaxWidth(outerWidth).MaxHeight(outerHeight)
+	innerWidth := max(outerWidth-m.theme.Column.GetHorizontalFrameSize(), 1)
+	logo := lipgloss.PlaceHorizontal(innerWidth, lipgloss.Center, m.theme.HeaderBrand.Render(looplineASCII))
+	content := lipgloss.JoinVertical(lipgloss.Left, logo, "", m.renderIdentityNavigation(innerWidth))
+	return style.Render(content)
+}
+
+func (m *Root) renderIdentityNavigation(width int) string {
+	labels := [numColumns]string{
+		theme.IconOverview + " OVERVIEW",
+		theme.IconHabits + " HABITS",
+		theme.IconReminders + " REMINDERS",
+	}
+	lines := make([]string, 0, len(labels))
+	for _, col := range globalColumnOrder {
+		lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Left, m.headerNavigationStyle(col).Render(labels[col])))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // styledColumn wraps a column's content with its border, sized and clamped
@@ -173,21 +263,23 @@ func (m *Root) renderHeaderNavigation(compact bool) string {
 		labels = [numColumns]string{theme.IconOverview, theme.IconHabits, theme.IconReminders}
 	}
 	parts := make([]string, 0, numColumns*2-1)
-	for col, label := range labels {
-		style := m.theme.HeaderItem
-		if m.focus.Column == col {
-			if m.navigation == NavigationHeader {
-				style = m.theme.HeaderSelected
-			} else {
-				style = m.theme.HeaderActive
-			}
-		}
-		parts = append(parts, style.Render(label))
-		if col < numColumns-1 {
+	for position, col := range globalColumnOrder {
+		parts = append(parts, m.headerNavigationStyle(col).Render(labels[col]))
+		if position < len(globalColumnOrder)-1 {
 			parts = append(parts, m.theme.Dim.Render(" │ "))
 		}
 	}
 	return strings.Join(parts, "")
+}
+
+func (m *Root) headerNavigationStyle(col int) lipgloss.Style {
+	if m.focus.Column != col {
+		return m.theme.HeaderItem
+	}
+	if m.navigation == NavigationHeader {
+		return m.theme.HeaderSelected
+	}
+	return m.theme.HeaderActive
 }
 
 func (m *Root) renderFooter() string {

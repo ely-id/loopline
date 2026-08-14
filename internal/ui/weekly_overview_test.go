@@ -75,6 +75,21 @@ func TestWeeklyOverviewHeaderStartsOnSunday(t *testing.T) {
 	}
 }
 
+func TestEmptyHabitSchedulesUseCompactMarker(t *testing.T) {
+	root := newReadyRoot(t, newFakeBackend(domain.MustParseDate("2026-08-10")))
+	weekly := stripANSI(root.renderWeeklyOverview(30, 6))
+	today := stripANSI(root.renderToday(25, 12))
+
+	for name, rendered := range map[string]string{"weekly": weekly, "today": today} {
+		if !strings.Contains(rendered, emptyScheduleMarker) {
+			t.Fatalf("%s empty state is missing compact marker %q:\n%s", name, emptyScheduleMarker, rendered)
+		}
+		if strings.Contains(rendered, "No habits scheduled") {
+			t.Fatalf("%s retained verbose empty-state copy:\n%s", name, rendered)
+		}
+	}
+}
+
 func TestSwitchingPanelsAfterWeeklyScrollLeavesValidVisibleSelection(t *testing.T) {
 	today := domain.MustParseDate("2026-08-10")
 	backend := newFakeBackend(today)

@@ -12,8 +12,8 @@ import (
 )
 
 // assertViewFits renders the full composed view and checks the invariants a
-// three-column TUI must never break: it fits the terminal exactly, no row is
-// wider than the terminal, and all three columns close their border.
+// responsive TUI must never break: it fits the terminal exactly, no row is
+// wider than the terminal, and every visible column closes its border.
 func assertViewFits(t *testing.T, m *Root, w, h int, ctx string) string {
 	t.Helper()
 	out := stripANSI(m.View().Content)
@@ -26,8 +26,12 @@ func assertViewFits(t *testing.T, m *Root, w, h int, ctx string) string {
 			t.Fatalf("%s: row %d is %d cells wide, terminal is %d: %q", ctx, i, lw, w, l)
 		}
 	}
-	if got := strings.Count(out, "└"); got != 3 {
-		t.Fatalf("%s: %d columns closed their bottom border, want 3 (the column overflowed and was clipped):\n%s", ctx, got, out)
+	wantColumns := 3
+	if m.usesIdentityRail() {
+		wantColumns = 4
+	}
+	if got := strings.Count(out, "└"); got != wantColumns {
+		t.Fatalf("%s: %d columns closed their bottom border, want %d (a column overflowed and was clipped):\n%s", ctx, got, wantColumns, out)
 	}
 	return out
 }

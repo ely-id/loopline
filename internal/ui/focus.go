@@ -1,7 +1,7 @@
 package ui
 
-// NavigationMode separates global header navigation from the selected
-// panel's local navigation surface.
+// NavigationMode separates global navigation (horizontal header or vertical
+// identity rail) from the selected panel's local navigation surface.
 type NavigationMode int
 
 const (
@@ -18,13 +18,18 @@ type Focus struct {
 	Item   int // index within the focused block's selectable items
 }
 
-// Columns, in navigation order.
+// Stable logical column IDs. See globalColumnOrder for presentation order.
 const (
 	ColOverview = iota
 	ColToday
 	ColReminders
 	numColumns
 )
+
+// globalColumnOrder is the left-to-right display and Tab order. Logical
+// column IDs remain stable so panel-specific state and backend data do not
+// depend on presentation order.
+var globalColumnOrder = [...]int{ColToday, ColReminders, ColOverview}
 
 // Blocks within the overview column.
 const (
@@ -149,10 +154,17 @@ func (m *Root) clampFocus() {
 	}
 }
 
-// moveGlobal shifts the selected header entry, wrapping around, and resets
+// moveGlobal shifts the selected global entry, wrapping around, and resets
 // its local target to the first selectable item in that panel.
 func (m *Root) moveGlobal(delta int) {
-	m.focus.Column = wrap(m.focus.Column+delta, numColumns)
+	position := 0
+	for i, col := range globalColumnOrder {
+		if col == m.focus.Column {
+			position = i
+			break
+		}
+	}
+	m.focus.Column = globalColumnOrder[wrap(position+delta, len(globalColumnOrder))]
 	m.focus.Block = 0
 	m.focus.Item = 0
 	m.clampFocus()

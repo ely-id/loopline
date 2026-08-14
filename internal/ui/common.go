@@ -9,6 +9,8 @@ import (
 	"loopline/internal/domain"
 )
 
+const emptyScheduleMarker = "----------"
+
 // renderActionLine renders a single-item "button" row, such as "+ Add habit".
 func (m *Root) renderActionLine(label string, selected bool) string {
 	text := fmt.Sprintf("%s + %s", markerGlyph(selected), label)

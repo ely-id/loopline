@@ -60,7 +60,7 @@ func (m *Root) renderWeeklyOverview(width, height int) string {
 	}
 	body := ""
 	if len(lines) == 0 {
-		body = ansi.Truncate(m.theme.Muted.Render("No habits scheduled this week."), width, "…")
+		body = ansi.Truncate(m.theme.Muted.Render(emptyScheduleMarker), width, "")
 	} else {
 		body = strings.Join(windowAround(lines, bodyHeight, focus), "\n")
 	}
@@ -220,7 +220,7 @@ func (m *Root) renderCompletionTimeline(width int) string {
 }
 
 func (m *Root) completionTimelineWidth() int {
-	outer := columnWidths(m.width)
+	outer := m.panelColumnWidths()
 	return max(outer[ColOverview]-m.theme.Column.GetHorizontalFrameSize(), 1)
 }
 

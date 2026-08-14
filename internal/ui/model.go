@@ -10,7 +10,8 @@ import (
 
 // Root is loopline's Bubble Tea v2 root model. It owns every piece
 // of interaction state (focus, modal, help, transient status) and renders
-// the whole three-column layout from the last Snapshot it was given.
+// the responsive identity/navigation and three content panels from the last
+// Snapshot it was given.
 type Root struct {
 	backend Backend
 	theme   theme.Theme

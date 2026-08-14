@@ -8,17 +8,17 @@ that baseline.
 Status legend: `PASS`, `FAIL`, `PARTIAL`, `N/A`.
 
 Validated with `go fmt ./...`, `go test ./...`, `go vet ./...`, and
-`go build ./cmd/loopline`, plus PTY runs at 120x40, 96x33, and 80x24 against a
-scratch SQLite database.
+`go build ./cmd/loopline`, plus responsive render coverage at 96x33, 119x35,
+120x35, 140x45, and 200x60.
 
 ## 1. Navigation and interaction
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Header starts as the understandable global navigation level | PASS | `spec_navigation_test.go`, `header_footer_test.go`; PTY run |
+| Global navigation starts as an understandable horizontal header or vertical rail | PASS | `spec_navigation_test.go`, `header_footer_test.go`, `layout_test.go` |
 | Tab/Shift+Tab cycles Overview, Habits, and Reminders | PASS | `spec_navigation_test.go`; PTY Tab and reverse-Tab checks |
 | Enter enters the selected panel | PASS | `spec_navigation_test.go`; PTY run |
-| Esc returns to the corresponding header entry | PASS | `spec_navigation_test.go`; PTY run |
+| Esc returns to the corresponding global navigation entry | PASS | `spec_navigation_test.go`; PTY run |
 | Up/Down forms one continuous local surface across blocks | PASS | `focus_test.go`, `spec_navigation_test.go`; PTY Add → routine header → habit and Add reminder → Calendar → reminder checks |
 | Empty blocks and panels cannot trap or invalidate focus | PASS | `focus_test.go`, `spec_navigation_test.go` |
 | Edit, toggle/expand, delete confirmation, and activation remain contextual | PASS | `crud_test.go`, `expansion_test.go`, `spec_activation_test.go`; PTY routine/reminder expansion and habit completion |
@@ -28,8 +28,9 @@ scratch SQLite database.
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| One responsive application header owns identity and global navigation | PASS | `header_footer_test.go`; exact embedded ASCII rows, text fallback, and minimal fallback covered |
-| Redundant interior Overview/Habits/Reminders titles are absent | PASS | `header_footer_test.go` |
+| Responsive identity/global navigation uses a vertical rail when wide and the horizontal header when compact | PASS | `layout_test.go`, `header_footer_test.go`; exact ASCII rows, breakpoint, text fallback, and minimal fallback covered |
+| Navigation and content retain the Habits → Reminders → Overview visual order in both responsive modes | PASS | `layout_test.go`, `spec_navigation_test.go` |
+| Wide panel headings map vertical selectors to Overview/Habits/Reminders while compact interiors stay dense | PASS | `layout_test.go`, `header_footer_test.go` |
 | Overview contains Lifetime, bounded Weekly Overview, and bottom-anchored Completion | PASS | `weekly_overview_test.go`, `height_budget_test.go`, `year_progress_test.go` |
 | Weekly Overview derives only scheduled/completed states for the current Sunday-first display week | PASS | `service_test.go`, `weekly_overview_test.go` |
 | Weekly selection stays visible without overwriting Completion | PASS | `weekly_overview_test.go`; viewport uses physical row budget and focused-row windowing |
@@ -56,8 +57,8 @@ scratch SQLite database.
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Three dynamic columns fit at the supported 96x33 minimum | PASS | `layout_test.go`, `column_fit_test.go`, `height_budget_test.go`; PTY 96x33 run |
-| Header/footer budgets do not collide with panel borders | PASS | representative full-view dimension tests; PTY 120x40 and 96x33 runs |
+| Three dynamic content panels fit at 96x33; the measured rail and proportioned panels fit at 120+ | PASS | `layout_test.go`, `column_fit_test.go`, `height_budget_test.go` |
+| Rail/header/footer budgets do not collide with panel borders | PASS | representative full-view and resize dimension tests |
 | Below minimum size, a clear centered message replaces the layout | PASS | `layout_test.go`; PTY 80x24 run |
 | Long lists and expanded details are windowed on physical terminal rows | PASS | `column_fit_test.go`, `height_budget_test.go`, `weekly_overview_test.go` |
 | ANSI-16 only; no page background or truecolor requirement | PASS | `internal/theme/theme.go`, `huh_theme_test.go` |

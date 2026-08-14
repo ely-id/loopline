@@ -237,10 +237,11 @@ type Focus struct {
 }
 ```
 
-`NavigationMode` is either header or panel. In header mode `Focus.Column`
-selects the global header entry. Enter switches to panel mode. In panel mode a
+`NavigationMode` is either global navigation or panel. In global mode
+`Focus.Column` selects the corresponding horizontal-header or vertical-rail
+entry. Enter switches to panel mode. In panel mode a
 flattened list of every selectable `(Block, Item)` pair provides one continuous
-Up/Down surface; empty blocks contribute no targets. Esc returns to header mode
+Up/Down surface; empty blocks contribute no targets. Esc returns to global mode
 without changing `Focus.Column`.
 
 Modal state is a separate field on the root; when a modal is open it consumes
@@ -249,7 +250,8 @@ every key except `esc`. Child models are **presentational**: they receive
 Routine collapsed IDs and the one expanded reminder ID also live on Root and
 are never persisted.
 
-Column blocks:
+Content panels render left-to-right as Habits, Reminders, Overview. Their
+logical IDs remain stable and their blocks are:
 
 - Column 0 (overview): `0` lifetime history, `1` bounded current-week habit
   matrix, `2` monthly completion heatmap. Completion is bottom anchored.
@@ -260,21 +262,24 @@ Column blocks:
 - Column 2 (reminders): `0` Add reminder, `1` conventional calendar, `2`
   upcoming reminders list. Non-interactive Year progress is bottom anchored.
 
-Keys, exactly as SPEC.md: header `tab/shift+tab` panel selection, `enter` enters
+Keys, exactly as SPEC.md: global `tab/shift+tab` panel selection, `enter` enters
 the selected panel, panel `up/down` traverses all local targets, `esc` returns
-to the header, `enter` activates/toggles, `e` edits the selected entity, `t`
+to global navigation, `enter` activates/toggles, `e` edits the selected entity, `t`
 expand/collapse structured items, physical `Delete` opens a destructive
 confirmation, `</>` (and `[/]`) previous/next month on either calendar,
 `esc` close modal, `?` help, `q` quit when no modal is open. `h/j/k/l` may be
 added as aliases.
 
-Responsive: compute three column widths from `tea.WindowSizeMsg`. Below
-`ui.MinWidth = 96` or `ui.MinHeight = 33`, render a single centred minimum-size
-message and nothing else. The header uses the embedded four-row ASCII mark only
-when width and height are comfortable, then falls back to textual `loopline`,
-then the minimal identity mark. At the minimum, a one-row text header, one-row
-footer and column borders leave 29 content rows. Fixed lower blocks are reserved
-before variable list/viewport heights are calculated.
+Responsive: compute all region widths from `tea.WindowSizeMsg`. At 120 cells
+and wider, use a measured ASCII identity/navigation rail followed by Habits,
+Reminders and Overview panels; extra panel width is distributed 1:2:2 so Habits
+stays compact. From `ui.MinWidth = 96` through 119 cells, retain
+the established three-panel composition and horizontal header. Below 96 cells
+or `ui.MinHeight = 33`, render a single centred minimum-size message and nothing
+else. The compact header uses the embedded four-row ASCII mark only when width
+and height are comfortable, then falls back to textual `loopline`, then the
+minimal identity mark. Fixed lower blocks are reserved before variable
+list/viewport heights are calculated.
 Height budgeting must measure **wrapped** height at the real usable column
 width, not logical string count.
 

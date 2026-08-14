@@ -247,7 +247,7 @@ func TestCompletionHistoryAliasesAndWheelReachBeforeApril(t *testing.T) {
 	}
 }
 
-func TestCompletionHistoryRemainsBoundedAcrossResponsiveHeaderTransitions(t *testing.T) {
+func TestCompletionHistoryRemainsBoundedAcrossResponsiveLayoutTransitions(t *testing.T) {
 	today := domain.MustParseDate("2026-08-12")
 	backend := newFakeBackend(today).withHabits(domain.Habit{
 		Title:     "Long history",
@@ -262,6 +262,7 @@ func TestCompletionHistoryRemainsBoundedAcrossResponsiveHeaderTransitions(t *tes
 	if root.completionEndWeek.IsZero() {
 		t.Fatal("test setup did not enter a historical viewport")
 	}
+	wantFocus := root.focus
 
 	assertState := func(width, height int, wantASCII bool) {
 		t.Helper()
@@ -273,9 +274,12 @@ func TestCompletionHistoryRemainsBoundedAcrossResponsiveHeaderTransitions(t *tes
 		if got := lipgloss.Height(view.Content); got > height {
 			t.Fatalf("%dx%d view height = %d", width, height, got)
 		}
-		hasASCII := strings.Contains(stripANSI(root.renderHeader()), "┓      ┓•")
+		if root.focus != wantFocus || root.navigation != NavigationPanel {
+			t.Fatalf("%dx%d resize changed local navigation: mode=%d focus=%+v", width, height, root.navigation, root.focus)
+		}
+		hasASCII := strings.Contains(stripANSI(view.Content), "┓      ┓•")
 		if hasASCII != wantASCII {
-			t.Fatalf("%dx%d ASCII header = %v, want %v", width, height, hasASCII, wantASCII)
+			t.Fatalf("%dx%d ASCII identity = %v, want %v", width, height, hasASCII, wantASCII)
 		}
 
 		window := completionVisibleWindow(
@@ -289,16 +293,16 @@ func TestCompletionHistoryRemainsBoundedAcrossResponsiveHeaderTransitions(t *tes
 		}
 	}
 
-	assertState(120, 35, false)
+	assertState(wideLayoutMinWidth-1, 35, false)
 	for range 5 {
 		root = send(t, root, tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	}
-	assertState(120, 36, true)
+	assertState(wideLayoutMinWidth, 35, true)
 	assertState(200, 60, true)
 	for range 5 {
 		root = send(t, root, tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	}
-	assertState(120, 35, false)
+	assertState(wideLayoutMinWidth-1, 35, false)
 }
 
 func TestCompletionPresentAnchorFollowsDateWhileHistoricalViewportStaysPut(t *testing.T) {
