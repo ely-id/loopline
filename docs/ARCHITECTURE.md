@@ -1,8 +1,7 @@
 # loopline — Architecture Contract
 
-Authoritative for cross-package boundaries. SPEC.md remains authoritative for
-product behaviour. If this document and SPEC.md disagree, SPEC.md wins and the
-lead updates this document.
+Authoritative for cross-package boundaries and the implementation constraints
+that keep the product behavior consistent across packages.
 
 ## 1. Dependency direction
 
@@ -262,7 +261,7 @@ logical IDs remain stable and their blocks are:
 - Column 2 (reminders): `0` Add reminder, `1` conventional calendar, `2`
   upcoming reminders list. Non-interactive Year progress is bottom anchored.
 
-Keys, exactly as SPEC.md: global `tab/shift+tab` panel selection, `enter` enters
+Keys: global `tab/shift+tab` panel selection, `enter` enters
 the selected panel, panel `up/down` traverses all local targets, `esc` returns
 to global navigation, `enter` activates/toggles, `e` edits the selected entity, `t`
 expand/collapse structured items, physical `Delete` opens a destructive
