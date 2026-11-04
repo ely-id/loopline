@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"loopline/internal/app"
+	"loopline/internal/demo"
 	"loopline/internal/domain"
 	"loopline/internal/store"
 	"loopline/internal/ui"
@@ -27,6 +28,7 @@ func main() {
 
 func run() error {
 	dbPath := flag.String("db", "", "database file (default: XDG data dir)")
+	demoMode := flag.Bool("demo", false, "seed an empty database with sample data before starting")
 	flag.Parse()
 
 	path := *dbPath
@@ -45,6 +47,11 @@ func run() error {
 	defer db.Close()
 
 	ctx := context.Background()
+	if *demoMode {
+		if err := demo.Seed(ctx, db, domain.SystemClock{}.Today()); err != nil {
+			return fmt.Errorf("seed demo data: %w", err)
+		}
+	}
 	service := app.New(db, domain.SystemClock{})
 	if err := service.EnsureToday(ctx); err != nil {
 		return fmt.Errorf("prepare today: %w", err)

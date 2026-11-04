@@ -1,9 +1,9 @@
 # QA Conformance Report
 
-Verification of the current `loopline` interface against `SPEC.md`. The
-known-good starting point for this round was `v0.2.0`; this report describes
-the global/local navigation and information-architecture refinement built on
-that baseline.
+Verification of the current `loopline` interface against the behavior and
+layout contracts covered by the repository's tests. The known-good starting
+point for this round was `v0.2.0`; this report describes the global/local
+navigation and information-architecture refinement built on that baseline.
 
 Status legend: `PASS`, `FAIL`, `PARTIAL`, `N/A`.
 
