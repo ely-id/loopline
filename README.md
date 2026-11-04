@@ -22,6 +22,32 @@ The interface is organized into three panels:
 - **Overview** — review lifetime progress, the current week, streaks, and a
   completion heatmap.
 
+## Preview
+
+The demo data set makes it easy to explore a populated dashboard without
+touching your personal database:
+
+![loopline overview in a dark terminal theme](docs/images/loopline-overview-dark.png)
+
+The layout also adapts to light terminal themes:
+
+![loopline dashboard in a light terminal theme](docs/images/loopline-dashboard-light.png)
+
+### Core workflows
+
+<p align="center">
+  <img src="docs/images/loopline-reminders-light.png" alt="Reminders panel with calendar and upcoming items" width="49%">
+  <img src="docs/images/loopline-empty-state-dark.png" alt="Empty dashboard state in a dark terminal theme" width="49%">
+</p>
+
+### Add flows
+
+<p align="center">
+  <img src="docs/images/loopline-add-habit.png" alt="Add habit form" width="32%">
+  <img src="docs/images/loopline-add-routine.png" alt="Add routine form" width="32%">
+  <img src="docs/images/loopline-add-reminder.png" alt="Add reminder form" width="32%">
+</p>
+
 ## Highlights
 
 - Keyboard-first navigation with a responsive three-panel layout.
