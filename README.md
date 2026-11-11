@@ -143,6 +143,35 @@ the domain package stays pure, and the store provides the persistence boundary.
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full contract and
 [`docs/QA.md`](docs/QA.md) for the current conformance report.
 
+## How it was built
+
+`loopline` started as a study in coordinating a small team of coding agents,
+and the architecture document doubles as the team's contract. Four roles share
+the codebase:
+
+| Role | Owns |
+| --- | --- |
+| **lead** | `internal/app`, `cmd/loopline`, `docs/`, and `go.mod` |
+| **data** | `internal/domain` and `internal/store` |
+| **ui** | `internal/ui` and `internal/theme` |
+| **qa** | Test files prefixed `spec_`, plus the `app` and `cmd` tests |
+
+A few rules keep the roles from colliding:
+
+- **One owner per file.** No role edits a file it does not own.
+- **Frozen signatures.** `domain/date.go` and `domain/model.go` were seeded by
+  the lead, and their exported signatures change only with the lead's approval.
+- **Separate test namespaces.** `data` and `ui` write unit tests with plain
+  names. `qa` only creates files prefixed `spec_`, so two roles never write the
+  same file.
+- **A fixed dependency set.** No role adds a dependency on its own.
+
+[`scripts/codex-review`](scripts/codex-review) gives the lead a second opinion:
+it asks a separate model for a read-only review and returns the recommendations
+without modifying files. [`docs/QA.md`](docs/QA.md) records the result of the
+`qa` pass as a requirement-by-requirement table with the test that proves each
+line.
+
 ## Development
 
 Run the standard checks:
@@ -154,9 +183,10 @@ go vet ./...
 go build ./cmd/loopline
 ```
 
-The test suite covers domain rules, persistence, CRUD flows, navigation,
-responsive rendering, terminal sizing, calendar behavior, and completion
-statistics.
+The test suite has 251 test functions in 34 files, more lines than the
+application code itself. It covers domain rules, persistence, CRUD flows,
+navigation, responsive rendering, terminal sizing, calendar behavior, and
+completion statistics.
 
 ## Project status
 
